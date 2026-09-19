@@ -1,0 +1,812 @@
+/* ─────────────────────────────────────────────
+   ntbk — crude chrome, beautiful content.
+   The ribbon is deliberately plain so the ink
+   and the typeset maths are what you look at.
+   ───────────────────────────────────────────── */
+
+:root {
+  --bg: #f2f3f5;
+  --panel: #eceef1;
+  --panel-2: #f7f8fa;
+  --line: #c8ccd3;
+  --line-soft: #dcdfe4;
+  --text: #1c1f24;
+  --text-dim: #666c76;
+  --accent: #1a6ef5;
+  --accent-soft: #e4edfe;
+  --canvas: #ffffff;
+  --ribbon-h: 92px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+#app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+/* ── Ribbon ────────────────────────────────── */
+.ntbk-ribbon {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+
+.ntbk-ribbon-tabs {
+  display: flex;
+  gap: 1px;
+  padding: 0 8px;
+  background: #e2e5e9;
+  border-bottom: 1px solid var(--line);
+}
+
+.ntbk-ribbon-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  padding: 5px 16px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px 3px 0 0;
+}
+.ntbk-ribbon-tab:hover { background: #eaedf1; color: var(--text); }
+.ntbk-ribbon-tab.is-active {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: -1px;
+  padding-bottom: 6px;
+}
+
+.ntbk-ribbon-panel { display: none; padding: 6px 8px 2px; }
+.ntbk-ribbon-panel.is-active { display: flex; align-items: stretch; gap: 0; }
+
+.ntbk-group {
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px;
+  border-right: 1px solid var(--line-soft);
+}
+.ntbk-group:last-child { border-right: none; }
+
+.ntbk-group-items { display: flex; gap: 2px; flex: 1; align-items: flex-start; }
+
+.ntbk-group-label {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding-top: 3px;
+}
+
+.ntbk-item { display: flex; align-items: stretch; }
+
+.ntbk-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 52px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ntbk-button:hover:not(:disabled) { background: var(--panel-2); border-color: var(--line-soft); }
+.ntbk-button:active:not(:disabled) { background: #e0e3e8; }
+.ntbk-button.is-active { background: var(--accent-soft); border-color: #a8c6f8; }
+.ntbk-button:disabled { opacity: 0.38; cursor: default; }
+.ntbk-button svg { width: 18px; height: 18px; stroke-width: 1.6; }
+
+.ntbk-caret {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--text-dim);
+  align-self: stretch;
+}
+.ntbk-caret:hover { background: var(--panel-2); border-color: var(--line-soft); }
+.ntbk-caret svg { width: 12px; height: 12px; }
+
+/* ── Popovers ──────────────────────────────── */
+.ntbk-popover {
+  position: absolute;
+  top: 0; left: 0;
+  z-index: 1000;
+  min-width: 210px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+}
+.ntbk-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.ntbk-popover-row label { width: 62px; color: var(--text-dim); font-size: 11px; }
+.ntbk-popover-row input[type="range"] { flex: 1; }
+.ntbk-popover-row output { width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+.ntbk-popover-hint { font-size: 10px; color: var(--text-dim); border-top: 1px solid var(--line-soft); padding-top: 7px; }
+
+/* ── Canvas ────────────────────────────────── */
+.ntbk-viewport {
+  position: relative;
+  overflow: hidden;
+  background:
+    repeating-conic-gradient(#eceef1 0% 25%, #e6e8ec 0% 50%) 0 0 / 24px 24px;
+  touch-action: none;
+}
+
+.ntbk-scene {
+  position: absolute;
+  top: 0; left: 0;
+  width: 1px; height: 1px;   /* transform origin only; layers are absolute */
+  transform-origin: 0 0;
+}
+
+.ntbk-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 20000px; height: 20000px;
+  overflow: visible;
+}
+
+.ntbk-pages { position: absolute; top: 0; left: 0; }
+
+.ntbk-page {
+  position: absolute;
+  background: var(--canvas);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.16);
+}
+.ntbk-page.is-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+}
+
+/* Ink sits ABOVE the object layer so a formula behaves like part of the
+   page you can write on, not a panel stuck on top of it. That means the
+   ink layer must not eat clicks meant for a box — hence pointer-events
+   none here, and rbush for stroke hit-testing instead of the DOM. */
+.ntbk-ink { pointer-events: none; }
+.ntbk-chrome { pointer-events: none; }
+.ntbk-objects, .ntbk-overlay { pointer-events: none; }
+.ntbk-objects > *, .ntbk-overlay > * { pointer-events: auto; }
+
+.ntbk-ink path.is-selected { outline: none; filter: drop-shadow(0 0 2px var(--accent)); }
+
+.ntbk-marquee {
+  fill: rgba(26, 110, 245, 0.08);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.ntbk-proxy { display: none; }
+
+/* Selection chrome lives in the viewport, outside the scene transform, so
+   handles stay the same size on screen however far you zoom in. */
+.ntbk-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+.ntbk-selbox {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+.ntbk-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.ntbk-handle:hover { background: var(--accent-soft); }
+
+/* ── Scrollbars ────────────────────────────────
+   The canvas is an infinite pan/zoom surface, not a scrolling document, so
+   there is no native scrollbar to inherit — these are drawn and driven in
+   ScrollBars.js. Each axis drags independently. */
+.ntbk-scrollbar {
+  position: absolute;
+  background: #e9ebef;
+  border: solid var(--line-soft);
+  z-index: 60;
+}
+.ntbk-scrollbar-vertical {
+  top: 0;
+  right: 0;
+  bottom: 12px;
+  width: 12px;
+  border-width: 0 0 0 1px;
+}
+.ntbk-scrollbar-horizontal {
+  left: 0;
+  right: 12px;
+  bottom: 0;
+  height: 12px;
+  border-width: 1px 0 0 0;
+}
+
+.ntbk-scrollthumb {
+  position: absolute;
+  background: #b4bac4;
+  border-radius: 6px;
+}
+.ntbk-scrollbar-vertical .ntbk-scrollthumb {
+  left: 2px;
+  right: 2px;
+  top: 0;
+  min-height: 24px;
+}
+.ntbk-scrollbar-horizontal .ntbk-scrollthumb {
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  min-width: 24px;
+}
+.ntbk-scrollthumb:hover { background: #99a1ae; }
+.ntbk-scrollthumb:active { background: #7d8796; }
+
+/* Eraser ring — this is the cursor, so the system one is hidden */
+.ntbk-eraser-ring {
+  fill: rgba(0, 0, 0, 0.04);
+  stroke: #7b828e;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ntbk-popover-modes { display: flex; gap: 4px; margin-bottom: 10px; }
+.ntbk-popover-mode {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--panel-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ntbk-popover-mode:hover { background: #e6e9ee; }
+.ntbk-popover-mode.is-active {
+  background: var(--accent-soft);
+  border-color: #a8c6f8;
+  font-weight: 600;
+}
+
+.ntbk-page-number {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  font-size: 11px;
+  color: #b6bcc6;
+  user-select: none;
+  pointer-events: none;
+}
+
+#status-page { font-variant-numeric: tabular-nums; }
+
+#add-page {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+#add-page:hover { background: #fff; border-color: var(--accent); color: var(--accent); }
+#add-page:active { background: #e0e3e8; }
+
+/* ── Objects ───────────────────────────────── */
+.ntbk-object {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chrome only on hover or selection. An always-visible opaque panel is
+   exactly what made the Qt version feel bolted onto the page. */
+.ntbk-latex {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 90ms, border-color 90ms;
+}
+.ntbk-latex:hover,
+.ntbk-latex.is-selected,
+.ntbk-latex[data-tab="source"] {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.ntbk-box-tabs {
+  display: none;
+  gap: 1px;
+  padding: 3px 3px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-latex:hover .ntbk-box-tabs,
+.ntbk-latex.is-selected .ntbk-box-tabs,
+.ntbk-latex[data-tab="source"] .ntbk-box-tabs { display: flex; }
+
+.ntbk-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px 3px 0 0;
+}
+.ntbk-tab:hover { background: var(--panel-2); }
+.ntbk-tab.is-active {
+  background: #fff;
+  border-color: var(--line-soft);
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: -1px;
+}
+
+.ntbk-box-body { flex: 1; position: relative; overflow: hidden; }
+
+.ntbk-latex-source,
+.ntbk-latex-output { position: absolute; inset: 0; }
+
+.ntbk-latex-source {
+  display: none;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ntbk-latex[data-tab="source"] .ntbk-latex-source { display: block; }
+.ntbk-latex[data-tab="source"] .ntbk-latex-output { display: none; }
+
+.ntbk-latex-output {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  overflow: auto;
+}
+.ntbk-latex-empty { color: #aaa; font-size: 11px; }
+.ntbk-latex-error {
+  margin: 0;
+  padding: 6px;
+  color: #b00020;
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+  text-align: left;
+}
+
+.ntbk-image { overflow: hidden; }
+.ntbk-image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.ntbk-image.is-missing {
+  border: 1px dashed #c0392b;
+  background: #fdf3f2;
+}
+.ntbk-image.is-missing::after {
+  content: attr(data-missing);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #c0392b;
+}
+
+.ntbk-pdfpage { overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.14); }
+.ntbk-pdfpage img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.ntbk-pdfpage.is-missing { border: 1px dashed #c0392b; background: #fdf3f2; }
+.ntbk-pdfpage.is-missing::after {
+  content: attr(data-missing);
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #c0392b;
+}
+
+/* ── Modal ─────────────────────────────────── */
+.ntbk-modal-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(24, 27, 32, 0.34);
+  display: flex; align-items: center; justify-content: center;
+}
+.ntbk-modal {
+  width: min(760px, 92vw);
+  max-height: 84vh;
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.28);
+}
+.ntbk-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.ntbk-modal-sub { color: var(--text-dim); font-size: 11px; flex: 1; }
+.ntbk-modal-close {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 13px; color: var(--text-dim); padding: 2px 6px;
+}
+.ntbk-modal-close:hover { color: var(--text); }
+
+.ntbk-modal-controls {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-modal-controls label { font-size: 11px; color: var(--text-dim); }
+.ntbk-range {
+  flex: 1; padding: 3px 7px;
+  border: 1px solid var(--line); border-radius: 3px;
+  font: inherit; font-size: 12px; background: #fff;
+}
+.ntbk-mini {
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--panel-2); font: inherit; font-size: 11px; cursor: pointer;
+}
+.ntbk-mini:hover { background: #fff; }
+.ntbk-count { font-size: 11px; color: var(--text-dim); min-width: 74px; text-align: right; }
+
+.ntbk-thumbs {
+  flex: 1; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px; padding: 12px; background: #dfe2e7;
+}
+.ntbk-thumb {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px; border: 2px solid transparent; border-radius: 4px;
+  background: transparent; cursor: pointer; font: inherit; font-size: 10px;
+  color: var(--text-dim);
+}
+.ntbk-thumb .ntbk-thumb-img {
+  width: 100%; aspect-ratio: 1 / 1.35;
+  background: #fff; border: 1px solid var(--line-soft);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.ntbk-thumb img { max-width: 100%; max-height: 100%; display: block; }
+.ntbk-thumb.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.ntbk-thumb.is-on .ntbk-thumb-img { border-color: var(--accent); }
+
+.ntbk-modal-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-top: 1px solid var(--line);
+}
+.ntbk-modal-foot label { font-size: 11px; color: var(--text-dim); }
+.ntbk-placement {
+  flex: 1; padding: 3px 6px; font: inherit; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 3px; background: #fff;
+}
+.ntbk-primary {
+  padding: 5px 16px; border: 1px solid var(--accent); border-radius: 3px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 12px;
+  font-weight: 600; cursor: pointer;
+}
+.ntbk-primary:hover { background: #1560dd; }
+.ntbk-primary:disabled { opacity: .45; cursor: default; }
+
+.ntbk-graph { overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+/* Inert: the plot is never interactive on the canvas, so no gesture over it
+   is ambiguous. Editing happens in the panel. */
+.ntbk-graph-board { pointer-events: none; user-select: none; }
+
+/* Appears on hover or when selected — the plot itself stays uncluttered */
+.ntbk-graph-edit {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: none;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.94);
+  font: inherit;
+  font-size: 10px;
+  color: var(--text);
+  cursor: pointer;
+  z-index: 2;
+}
+.ntbk-graph:hover .ntbk-graph-edit,
+.ntbk-graph.is-selected .ntbk-graph-edit { display: block; }
+.ntbk-graph-edit:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Graph editor — floats over the canvas, goes away when you're done */
+.ntbk-graph-editor {
+  position: absolute;
+  z-index: 70;
+  width: 372px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 10px 34px rgba(0,0,0,.24);
+  font-size: 12px;
+}
+.ntbk-ge-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 9px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-ge-hint { flex: 1; font-size: 10px; color: var(--text-dim); }
+.ntbk-ge-close {
+  padding: 3px 12px; border: 1px solid var(--accent); border-radius: 3px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 11px;
+  font-weight: 600; cursor: pointer;
+}
+.ntbk-ge-board { height: 264px; background: #fff; border-bottom: 1px solid var(--line-soft); }
+.ntbk-ge-list {
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 6px;
+  /* Always-on bar. macOS overlay scrollbars stay hidden until you are
+     already scrolling, so a list of functions gives no hint that there
+     are more below the fold. */
+  scrollbar-gutter: stable;
+}
+.ntbk-ge-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.ntbk-ge-swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+.ntbk-ge-y { color: var(--text-dim); font-size: 11px; }
+.ntbk-ge-row input {
+  flex: 1; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px;
+  font-family: var(--mono); font-size: 12px; background: #fff;
+}
+.ntbk-ge-row.is-bad input { border-color: #c0392b; background: #fdf3f2; }
+.ntbk-ge-del {
+  border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 2px 4px;
+}
+.ntbk-ge-del:hover { color: #c0392b; }
+.ntbk-ge-foot { display: flex; gap: 6px; padding: 7px 9px; border-top: 1px solid var(--line-soft); }
+.ntbk-ge-note { font-size: 10px; color: var(--text-dim); padding: 2px 2px 4px; }
+.ntbk-ge-presets { display: flex; gap: 4px; margin: 6px 0 8px; }
+.ntbk-ge-presets .ntbk-mini { flex: 1; }
+.ntbk-ge-slider { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.ntbk-ge-slider label { width: 34px; font-size: 11px; color: var(--text-dim); }
+.ntbk-ge-slider input[type="range"] { flex: 1; }
+.ntbk-ge-slider output {
+  width: 38px; text-align: right; font-size: 11px;
+  font-variant-numeric: tabular-nums; color: var(--text-dim);
+}
+.ntbk-ge-select {
+  flex: 1; padding: 3px 6px; font: inherit; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 3px; background: #fff;
+}
+.ntbk-ge-data { padding: 2px; }
+.ntbk-ge-data label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
+.ntbk-ge-data textarea {
+  width: 100%; resize: vertical; padding: 4px 6px;
+  border: 1px solid var(--line); border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; background: #fff;
+}
+.ntbk-popover-mode:disabled { opacity: .45; cursor: default; }
+
+/* Visible scrollbars wherever content can overflow — same reasoning as the
+   canvas scrollbars, and styled to match them rather than the OS default. */
+.ntbk-ge-list::-webkit-scrollbar,
+.ntbk-thumbs::-webkit-scrollbar,
+.ntbk-latex-output::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.ntbk-ge-list::-webkit-scrollbar-track,
+.ntbk-thumbs::-webkit-scrollbar-track,
+.ntbk-latex-output::-webkit-scrollbar-track {
+  background: #e9ebef;
+  border-left: 1px solid var(--line-soft);
+}
+.ntbk-ge-list::-webkit-scrollbar-thumb,
+.ntbk-thumbs::-webkit-scrollbar-thumb,
+.ntbk-latex-output::-webkit-scrollbar-thumb {
+  background: #b4bac4;
+  border-radius: 6px;
+  border: 2px solid #e9ebef;
+}
+.ntbk-ge-list::-webkit-scrollbar-thumb:hover,
+.ntbk-thumbs::-webkit-scrollbar-thumb:hover,
+.ntbk-latex-output::-webkit-scrollbar-thumb:hover {
+  background: #99a1ae;
+}
+
+/* ── Code cell ─────────────────────────────── */
+.ntbk-code {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+.ntbk-code-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-bottom: 1px solid var(--line-soft);
+}
+/* Press the title bar to select and drag the window, like any window */
+.ntbk-code-head.is-drag-handle { cursor: move; }
+.ntbk-code-head.is-drag-handle input,
+.ntbk-code-head.is-drag-handle button { cursor: auto; }
+.ntbk-code-head.is-drag-handle button { cursor: pointer; }
+.ntbk-code.is-selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ntbk-code-name {
+  width: 190px; padding: 2px 7px;
+  border: 1px solid transparent; border-radius: 3px;
+  background: transparent; font-family: var(--mono); font-size: 12px;
+  font-weight: 600; color: var(--text);
+}
+.ntbk-code-name:hover { border-color: var(--line-soft); background: #fff; }
+.ntbk-code-name:focus { border-color: var(--accent); background: #fff; outline: none; }
+.ntbk-code-lang { flex: 1; font-size: 10px; color: var(--text-dim); }
+.ntbk-code-run {
+  padding: 3px 12px; border: 1px solid var(--accent); border-radius: 3px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 11px;
+  font-weight: 600; cursor: pointer;
+}
+.ntbk-code-run:hover { background: #1560dd; }
+.ntbk-code-run:disabled { opacity: .55; cursor: default; }
+.ntbk-code-stop {
+  padding: 3px 11px; border: 1px solid #c0392b; border-radius: 3px;
+  background: #fff; color: #c0392b; font: inherit; font-size: 11px;
+  font-weight: 600; cursor: pointer;
+}
+.ntbk-code-stop:hover { background: #fdf3f2; }
+
+.ntbk-code-cmd {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 8px 6px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-code-cmd label { font-size: 10px; color: var(--text-dim); }
+.ntbk-code-command {
+  flex: 1; padding: 2px 7px;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+}
+.ntbk-code-command::placeholder { color: #a6acb6; }
+.ntbk-code-command:focus { border-color: var(--accent); outline: none; }
+
+.ntbk-code-tabs {
+  display: flex; gap: 1px; padding: 4px 6px 0;
+  background: #e2e5e9; border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.ntbk-code-tab {
+  border: 1px solid transparent; border-bottom: none;
+  background: transparent; padding: 3px 11px;
+  font: inherit; font-size: 11px; color: var(--text-dim);
+  cursor: pointer; border-radius: 3px 3px 0 0; white-space: nowrap;
+}
+.ntbk-code-tab:hover { background: #eaedf1; color: var(--text); }
+.ntbk-code-tab.is-active {
+  background: #fff; border-color: var(--line);
+  color: var(--text); font-weight: 600; margin-bottom: -1px;
+}
+
+.ntbk-code-body { flex: 1; position: relative; background: #fff; overflow: hidden; }
+.ntbk-code-pane { position: absolute; inset: 0; overflow: auto; }
+.ntbk-code-pane .cm-editor { height: 100%; }
+.ntbk-code-pane .cm-scroller { font-family: var(--mono); font-size: 12px; }
+
+/* The terminal pane. xterm brings its own layout; this just gives it room. */
+.ntbk-code-pane[data-pane="term"] { padding: 6px 4px 4px 8px; background: #fff; }
+.ntbk-code-pane[data-pane="term"] .xterm { height: 100%; }
+.ntbk-code-pane[data-pane="term"] .xterm-viewport { background: #fff !important; }
+.ntbk-code-artefact {
+  display: block; max-width: 100%; margin: 8px auto; border: none;
+}
+iframe.ntbk-code-artefact { width: 100%; height: 100%; }
+
+/* ── Properties menu (right-click) ─────────── */
+.ntbk-context {
+  position: fixed;
+  z-index: 3000;
+  min-width: 232px;
+  padding: 7px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.2);
+  user-select: none;
+}
+.ntbk-context-head {
+  font-size: 10px; color: var(--text-dim);
+  padding: 1px 4px 6px; border-bottom: 1px solid var(--line-soft); margin-bottom: 6px;
+}
+.ntbk-context-row {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 6px;
+}
+.ntbk-context-label {
+  width: 60px; flex: none; font-size: 10px; color: var(--text-dim);
+}
+.ntbk-context-btn {
+  flex: 1; padding: 4px 6px;
+  border: 1px solid var(--line-soft); border-radius: 3px;
+  background: var(--panel-2); font: inherit; font-size: 11px;
+  color: var(--text); cursor: pointer; white-space: nowrap;
+}
+.ntbk-context-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: #a8c6f8; }
+.ntbk-context-btn:disabled { opacity: .4; cursor: default; }
+.ntbk-context-swatch {
+  width: 17px; height: 17px; flex: none;
+  border: 1px solid rgba(0,0,0,.18); border-radius: 3px; cursor: pointer; padding: 0;
+}
+.ntbk-context-swatch:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ntbk-context-row input[type="range"] { flex: 1; }
+.ntbk-context-row output {
+  width: 26px; text-align: right; font-size: 11px;
+  color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+.ntbk-context-note { font-size: 10px; color: #a6acb6; font-style: italic; }
+.ntbk-context-danger { margin-bottom: 0; }
+.ntbk-context-danger .ntbk-context-btn {
+  border-color: #e3b8b4; color: #b00020; background: #fff;
+}
+.ntbk-context-danger .ntbk-context-btn:hover { background: #fdf3f2; border-color: #c0392b; }
+
+/* ── Status bar ────────────────────────────── */
+#statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+#status-tool { font-weight: 600; color: var(--text); min-width: 74px; }
+#status-zoom { min-width: 44px; font-variant-numeric: tabular-nums; }
+#status-hint { margin-left: auto; }
+
+/* Pickr sits inside a popover that is already positioned */
+.ntbk-pickr .pcr-button { height: 20px; width: 34px; }

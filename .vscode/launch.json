@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Day-to-day. Needs `npm run dev` already running in frontend/ —
+      // the "Vite dev server" task below starts it for you.
+      "name": "ntbk (dev, hot reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/ntbk/app.py",
+      "args": ["--dev", "--debug"],
+      "python": "${workspaceFolder}/venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "preLaunchTask": "Vite dev server"
+    },
+    {
+      // What you'd actually ship: builds the bundle, then loads it off disk.
+      "name": "ntbk (production build)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/ntbk/app.py",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "preLaunchTask": "Build frontend"
+    },
+    {
+      // Skips the build. Only right when you've changed Python and not JS.
+      "name": "ntbk (run last build, no rebuild)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/ntbk/app.py",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

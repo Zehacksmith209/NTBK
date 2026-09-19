@@ -2,7 +2,8 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QToolBar, QWidget,
     QVBoxLayout, QGraphicsScene, QGraphicsView, QLabel,
-    QSizePolicy, QToolButton, QMenu, QWidgetAction, QComboBox, QSpinBox
+    QSizePolicy, QToolButton, QMenu, QWidgetAction, QComboBox, QSpinBox,
+    QColorDialog, QInputDialog
 )
 from PyQt6.QtGui import QAction, QIcon, QColor, QPainter, QCursor
 from PyQt6.QtCore import Qt, QSize
@@ -83,13 +84,19 @@ class NtbkApp(QMainWindow):
         toolbar.addWidget(btn)
         return btn
 
-    def _make_dropdown_button(self, toolbar, label, tooltip, menu_items):
-        """Creates a toolbar button with a dropdown menu."""
+    def _make_dropdown_button(self, toolbar, label, tooltip, menu_items, slot=None):
+        """Creates a toolbar button with a dropdown menu.
+
+        `slot` fires when the button face itself is clicked, as opposed to the
+        arrow — used so clicking 'Pen' or 'Select' switches to that tool.
+        """
         btn = QToolButton()
         btn.setText(label)
         btn.setToolTip(tooltip)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        if slot:
+            btn.clicked.connect(slot)
 
         menu = QMenu()
         for item_label, slot in menu_items:
@@ -118,24 +125,31 @@ class NtbkApp(QMainWindow):
     def _build_home_toolbar(self):
         tb = self._make_toolbar("Home")
 
+        # Selection group
+        self._make_dropdown_button(tb, "⬚  Select", "Selection tool", [
+            ("Lasso Select",     self._on_select_lasso),
+            ("Rectangle Select", self._on_select_rect),
+        ], slot=self._on_select_lasso)
+
+        self._separator(tb)
+
         # Pens group
         self._make_dropdown_button(tb, "🖊  Pen", "Pen tool", [
             ("Pen Color",     self._on_pen_color),
             ("Pen Thickness", self._on_pen_thickness),
-        ])
+        ], slot=self._on_pen_tool)
         self._make_dropdown_button(tb, "🟡  Highlighter", "Highlighter tool", [
             ("Highlight Color",     self._on_highlight_color),
             ("Highlight Thickness", self._on_highlight_thickness),
-        ])
+        ], slot=self._on_highlighter_tool)
 
         self._separator(tb)
 
         # Eraser group
         self._make_dropdown_button(tb, "⬜  Eraser", "Eraser tool", [
-            ("Eraser Thickness", self._on_eraser_thickness),
-            ("Partial Erase",    self._on_eraser_partial),
-            ("Erase Whole",      self._on_eraser_whole),
-        ])
+            ("Stroke Eraser",  self._on_eraser_whole),
+            ("Partial Eraser", self._on_eraser_partial),
+        ], slot=self._on_eraser_whole)
 
         self._separator(tb)
 
@@ -197,30 +211,69 @@ class NtbkApp(QMainWindow):
     def _on_print(self):            print("Print")
     def _on_cloud_upload(self):     print("Cloud Upload")
 
-    def _on_pen_color(self):        
-        # Temporary: cycles black → blue to test color switching
-        # Will be replaced with a proper color picker dialog later
-        if self.canvas.pen_color == QColor("#000000"):
-            self.canvas.set_pen_color(QColor("#1a6ef5"))
-            print("Pen color → blue")
-        else:
-            self.canvas.set_pen_color(QColor("#000000"))
-            print("Pen color → black")
-    def _on_pen_thickness(self):    
-        # Temporary: cycles thin → thick to test thickness switching
-        # Will be replaced with a slider dialog later
-        if self.canvas.pen_width == 2.0:
-            self.canvas.set_pen_width(6.0)
-            print("Pen width → thick")
-        else:
-            self.canvas.set_pen_width(2.0)
-            print("Pen width → thin")
-    def _on_highlight_color(self):  print("Highlight Color")
-    def _on_highlight_thickness(self): print("Highlight Thickness")
+    def _on_select_lasso(self):
+        self.canvas.set_tool("lasso")
+        print("Tool → lasso select")
 
-    def _on_eraser_thickness(self): print("Eraser Thickness")
-    def _on_eraser_partial(self):   print("Partial Erase")
-    def _on_eraser_whole(self):     print("Erase Whole")
+    def _on_select_rect(self):
+        self.canvas.set_tool("select_rect")
+        print("Tool → rectangle select")
+
+    def _on_pen_tool(self):
+        self.canvas.set_tool("pen")
+        print("Tool → pen")
+
+    def _on_pen_color(self):
+        """Recolours the selection if there is one, otherwise sets the pen."""
+        color = QColorDialog.getColor(self.canvas.pen_color, self, "Pen Color")
+        if not color.isValid():
+            return
+        if self.canvas.has_selection():
+            self.canvas.set_selection_color(color)
+            print(f"Selection color → {color.name()}")
+        else:
+            self.canvas.set_pen_color(color)
+            print(f"Pen color → {color.name()}")
+
+    def _on_pen_thickness(self):
+        """Same idea as colour — selection first, pen otherwise."""
+        width, ok = QInputDialog.getDouble(
+            self, "Pen Thickness", "Thickness:", self.canvas.pen_size, 0.5, 50.0, 1)
+        if not ok:
+            return
+        if self.canvas.has_selection():
+            self.canvas.set_selection_width(width)
+            print(f"Selection thickness → {width}")
+        else:
+            self.canvas.set_pen_width(width)
+            print(f"Pen thickness → {width}")
+    def _on_highlighter_tool(self):
+        self.canvas.set_tool("highlighter")
+        print("Tool → highlighter")
+
+    def _on_highlight_color(self):
+        color = QColorDialog.getColor(self.canvas.highlight_color, self,
+                                      "Highlight Color")
+        if not color.isValid():
+            return
+        self.canvas.set_highlight_color(color)
+        print(f"Highlight color → {self.canvas.highlight_color.name()}")
+
+    def _on_highlight_thickness(self):
+        width, ok = QInputDialog.getDouble(
+            self, "Highlight Thickness", "Thickness:",
+            self.canvas.highlight_size, 1.0, 80.0, 1)
+        if ok:
+            self.canvas.set_highlight_width(width)
+            print(f"Highlight thickness → {width}")
+
+    def _on_eraser_partial(self):
+        self.canvas.set_tool("eraser_partial")
+        print("Tool → partial eraser")
+
+    def _on_eraser_whole(self):
+        self.canvas.set_tool("eraser_stroke")
+        print("Tool → stroke eraser")
 
     def _on_shape_triangle(self):   print("Shape: Triangle")
     def _on_shape_circle(self):     print("Shape: Circle")
@@ -234,7 +287,12 @@ class NtbkApp(QMainWindow):
     def _on_insert_pdf(self):       print("Insert PDF")
     def _on_insert_excel(self):     print("Insert Excel")
     def _on_insert_table(self):     print("Insert Table")
-    def _on_insert_latex(self):     print("Insert LaTeX")
+    def _on_insert_latex(self):
+        self.canvas.add_latex_box()
+        # Switch to select, otherwise the pen would draw over the new box
+        # instead of letting you click into it and type
+        self.canvas.set_tool("lasso")
+        print("Inserted LaTeX box (tool → lasso so you can type in it)")
     def _on_insert_code(self, lang): print(f"Insert Code: {lang}")
     def _on_insert_matplotlib(self): print("Insert Matplotlib")
     def _on_insert_desmos(self):    print("Insert Desmos")
