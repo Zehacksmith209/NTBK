@@ -21,7 +21,9 @@ export class ObjectLayer {
   }
 
   _host(object) {
-    return object.layer === "overlay" ? this.overlayEl : this.contentEl;
+    // "over" is for things you work IN, like a code cell; everything else
+    // sits under the ink so you can write on it
+    return object.band === "over" ? this.overlayEl : this.contentEl;
   }
 
   render(object) {

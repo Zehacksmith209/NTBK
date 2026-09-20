@@ -80,9 +80,11 @@ export class SelectTool {
     const picked = [];
     for (const id of this.app.scene.index.search(rect.minX, rect.minY, rect.maxX, rect.maxY)) {
       const stroke = this.app.store.find(id);
-      if (stroke && strokeInsideRect(stroke, rect)) picked.push(id);
+      if (stroke && this.app.isInteractive(stroke)
+          && strokeInsideRect(stroke, rect)) picked.push(id);
     }
     for (const object of this.app.store.objects) {
+      if (!this.app.isInteractive(object)) continue;
       if (object.x >= rect.minX && object.y >= rect.minY
           && object.x + object.w <= rect.maxX
           && object.y + object.h <= rect.maxY) {
@@ -112,6 +114,7 @@ export function hitTestAt(app, point) {
   const objects = app.store.objects;
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
+    if (!app.isInteractive(o)) continue;   // hidden or locked, or its layer is
     if (point.x >= o.x && point.x <= o.x + o.w
         && point.y >= o.y && point.y <= o.y + o.h) {
       return o.id;
@@ -123,7 +126,8 @@ export function hitTestAt(app, point) {
   let best = null;
   for (const id of candidates) {
     const stroke = app.store.find(id);
-    if (stroke && strokeHit(stroke, point.x, point.y, tolerance)) best = id;
+    if (stroke && app.isInteractive(stroke)
+        && strokeHit(stroke, point.x, point.y, tolerance)) best = id;
   }
   return best;
 }

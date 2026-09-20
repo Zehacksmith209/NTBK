@@ -129,3 +129,14 @@ export function setPages(before, after, label = "Pages") {
     undo: (store) => store.setPages(clone(from)),
   };
 }
+
+/** Adding, renaming, hiding or locking layers, as one undoable step. */
+export function setLayersCommand(before, after, label = "Layers") {
+  const from = clone(before);
+  const to = clone(after);
+  return {
+    label,
+    redo: (store) => store.setLayers(clone(to)),
+    undo: (store) => store.setLayers(clone(from)),
+  };
+}

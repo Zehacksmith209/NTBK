@@ -162,7 +162,7 @@ export class ShapeTool {
       style: this.style,
     });
     stroke.shape = this.kind;
-    this.app.history.run(addElements([stroke], SHAPE_LABELS[this.kind] ?? "Shape"));
+    this.app.history.run(addElements([this.app.adopt(stroke)], SHAPE_LABELS[this.kind] ?? "Shape"));
   }
 
   onCancel() {

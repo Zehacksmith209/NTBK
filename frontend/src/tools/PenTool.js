@@ -23,6 +23,10 @@ export class PenTool {
     this.raw = [];      // {x, y, p} — simplify-js reads x/y and returns the
                         // same objects back, so pressure survives thinning
     this.liveStroke = null;
+    // One gesture can leave several strokes behind: passing under the ruler
+    // breaks the line, exactly as a real ruler would.
+    this.pieces = [];
+    this.kept = [];
   }
 
   get style() {
@@ -32,19 +36,12 @@ export class PenTool {
   onPointerDown(event, point) {
     if (event.button !== 0) return;
     this.drawing = true;
-    this.raw = [{ x: point.x, y: point.y, p: pressureOf(event) }];
-
-    this.liveStroke = createStroke({
-      kind: this.kind,
-      points: flatten(this.raw),
-      style: { ...this.style },
-    });
-    // Deliberately NOT setting done=false. perfect-freehand's `last` flag
-    // changes how the stroke end is built, so previewing with it off and
-    // committing with it on makes the ink visibly shift the moment you lift
-    // the pen. Rendering both the same way is what makes what you see the
-    // thing you keep.
-    this.app.scene.ink.render(this.liveStroke);
+    this.pieces = [];
+    this.kept = [];
+    this.raw = [];
+    this.liveStroke = null;
+    this.app.ruler.beginSnap();
+    this._take(point, pressureOf(event));
   }
 
   onPointerMove(event, point) {
@@ -57,11 +54,61 @@ export class PenTool {
     const coalesced = event.getCoalescedEvents?.() ?? [];
     const samples = coalesced.length ? coalesced : [event];
     for (const sample of samples) {
-      const p = sample === event ? point : this.app.scene.toScene(sample.clientX, sample.clientY);
-      this.raw.push({ x: p.x, y: p.y, p: pressureOf(sample) });
+      const raw = sample === event ? point : this.app.scene.toScene(sample.clientX, sample.clientY);
+      this._take(raw, pressureOf(sample));
     }
 
-    this.liveStroke.points = flatten(this._thin());
+    this._paint();
+  }
+
+  /**
+   * Accept one sample, unless the ruler is in the way.
+   *
+   * The edge takes the nib when it is close enough — that is the whole reason
+   * to put a ruler on the page. Deeper in, the body blocks it: the line stops
+   * at the edge and picks up again where the pen comes out, instead of
+   * quietly drawing on the paper underneath.
+   */
+  _take(point, pressure) {
+    const snapped = this.app.ruler.snap(point);
+    if (!snapped.snapped && this.app.ruler.blocks(point)) {
+      this._breakHere();
+      return;
+    }
+    this.raw.push({ x: snapped.x, y: snapped.y, p: pressure });
+  }
+
+  /** End the current piece at the ruler's edge and wait for the pen to reappear. */
+  _breakHere() {
+    if (this.raw.length >= 2) {
+      const thinned = this._thin();
+      this.pieces.push(thinned);
+      // Leave the finished piece on screen so the line does not flicker away
+      // while the pen is still travelling under the ruler
+      if (this.liveStroke) this.kept.push(this.liveStroke);
+    } else if (this.liveStroke) {
+      this.app.scene.ink.remove(this.liveStroke.id);
+    }
+    this.raw = [];
+    this.liveStroke = null;
+  }
+
+  _paint() {
+    if (!this.raw.length) return;
+    if (!this.liveStroke) {
+      this.liveStroke = createStroke({
+        kind: this.kind,
+        points: flatten(this.raw),
+        style: { ...this.style },
+      });
+      // Deliberately NOT setting done=false. perfect-freehand's `last` flag
+      // changes how the stroke end is built, so previewing with it off and
+      // committing with it on makes the ink visibly shift the moment you lift
+      // the pen. Rendering both the same way is what makes what you see the
+      // thing you keep.
+    } else {
+      this.liveStroke.points = flatten(this._thin());
+    }
     this.app.scene.ink.render(this.liveStroke);
   }
 
@@ -82,32 +129,46 @@ export class PenTool {
   onPointerUp() {
     if (!this.drawing) return;
     this.drawing = false;
+    this.app.ruler.endSnap();
 
-    const live = this.liveStroke;
-    this.liveStroke = null;
-    this.app.scene.ink.remove(live.id);
-
-    if (this.raw.length < 2) {
+    // Whatever is still in hand becomes the last piece
+    if (this.raw.length === 1) {
       // A tap still deserves a dot
       this.raw.push({ ...this.raw[0], x: this.raw[0].x + 0.01 });
     }
+    if (this.raw.length >= 2) {
+      this.pieces.push(this._thin());
+      if (this.liveStroke) this.kept.push(this.liveStroke);
+    }
 
-    // Same thinning the preview was already drawing from
-    const thinned = this._thin();
+    for (const preview of this.kept) this.app.scene.ink.remove(preview.id);
+    if (this.liveStroke) this.app.scene.ink.remove(this.liveStroke.id);
+    this.liveStroke = null;
+    this.kept = [];
 
-    const stroke = createStroke({
+    const strokes = this.pieces.map((points) => this.app.adopt(createStroke({
       kind: this.kind,
-      points: flatten(thinned),
+      points: flatten(points),
       style: { ...this.style },
-    });
-    this.app.history.run(addElements([stroke], this.kind === "pen" ? "Draw" : "Highlight"));
+    })));
+
+    // One gesture, one undo step, however many pieces the ruler cut it into
+    if (strokes.length) {
+      this.app.history.run(
+        addElements(strokes, this.kind === "pen" ? "Draw" : "Highlight"));
+    }
+    this.pieces = [];
     this.raw = [];
   }
 
   onCancel() {
+    this.app.ruler.endSnap();
+    for (const preview of this.kept) this.app.scene.ink.remove(preview.id);
     if (this.liveStroke) this.app.scene.ink.remove(this.liveStroke.id);
     this.drawing = false;
     this.liveStroke = null;
+    this.kept = [];
+    this.pieces = [];
     this.raw = [];
   }
 }

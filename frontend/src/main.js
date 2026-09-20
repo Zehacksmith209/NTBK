@@ -1,7 +1,10 @@
 import "./styles/app.css";
 
-import { Store, createEmptyDocument, createPage, SCHEMA_VERSION } from "./model/document.js";
-import { History, addElements, removeElements, patchElements, setPages } from "./model/history.js";
+import { Store, createEmptyDocument, createPage, createLayer, ensureLayers,
+         SCHEMA_VERSION, createStroke } from "./model/document.js";
+import { newId } from "./model/ids.js";
+import { History, addElements, removeElements, patchElements, setPages,
+         setLayersCommand } from "./model/history.js";
 import { Scene } from "./canvas/Scene.js";
 import { SelectionController } from "./canvas/SelectionController.js";
 import { ScrollBars } from "./canvas/ScrollBars.js";
@@ -11,6 +14,9 @@ import { EraserTool } from "./tools/EraserTool.js";
 import { ShapeTool, SHAPE_KINDS, SHAPE_LABELS } from "./tools/ShapeTool.js";
 import { buildRibbon } from "./ui/Ribbon.js";
 import { openContextMenu, closeContextMenu } from "./ui/ContextMenu.js";
+import { openInspector, closeInspector } from "./ui/Inspector.js";
+import { VIEW_PRESETS } from "./graph/GraphRenderer.js";
+import { ObjectPanel } from "./ui/ObjectPanel.js";
 import { bridge } from "./bridge.js";
 import { createLatexObject } from "./objects/LatexBox.js";
 import { createImageObject } from "./objects/ImageBox.js";
@@ -18,6 +24,10 @@ import { createPdfPageObject } from "./objects/PdfPage.js";
 import { PdfService } from "./pdf/PdfService.js";
 import { createGraphObject, GraphEditor } from "./objects/GraphBox.js";
 import { createCodeObject } from "./objects/CodeCell.js";
+import { createTextObject, DEFAULT_TEXT_SIZE } from "./objects/TextBox.js";
+import { Ruler } from "./tools/Ruler.js";
+import { renderPageToPng } from "./export/renderPage.js";
+import { TextTool } from "./tools/TextTool.js";
 import { openPdfDialog } from "./ui/PdfDialog.js";
 import { AssetStore } from "./model/assets.js";
 
@@ -74,6 +84,7 @@ class App {
 
     this.tools = {
       select: new SelectTool(this),
+      text: new TextTool(this),
       pen: new PenTool(this, "pen"),
       highlighter: new PenTool(this, "highlighter"),
       eraser_stroke: new EraserTool(this, "stroke"),
@@ -84,6 +95,7 @@ class App {
     this.tool = null;
 
     root.querySelector("#ribbon").appendChild(buildRibbon(this));
+    this.panel = new ObjectPanel(this, root.querySelector("#object-panel"));
     // Lives in the status bar beside the page indicator rather than up in the
     // ribbon — it belongs with the thing it counts
     document.querySelector("#add-page").addEventListener("click", () => this.addPage());
@@ -97,13 +109,36 @@ class App {
       this._updateStatus();
       this._restyleForZoom();
     });
-    this.host.addEventListener("scene:reload", () => this.setSelection([]));
+    this.host.addEventListener("scene:reload", () => {
+      // A different document: whatever was being inspected is gone
+      closeInspector();
+      this.setSelection([]);
+    });
+
+    this.ruler = new Ruler(this);
 
     this.languages = {};
     this.loadLanguages();
 
     this.setTool("pen");
+    this._wirePageInput();
     this._updateStatus();
+    this._openLaunchDocument();
+  }
+
+  /** Load the notebook this window was launched with, if there was one. */
+  async _openLaunchDocument() {
+    await bridge.whenReady();
+    const opened = await bridge.pendingOpen();
+    if (!opened) return;
+    const { data, assets } = opened;
+    if (data.format !== "ntbk") return;
+    this.pdf.clear();
+    this.assets.load(data.assets ?? [], assets);
+    this.store.replaceDocument(data);
+    this.history.clear();
+    this.setSelection([]);
+    this._syncTitle();
   }
 
   // ── Tools ─────────────────────────────────
@@ -131,12 +166,33 @@ class App {
     return hitTestAt(this, point);
   }
 
+  /**
+   * Can this element be clicked, selected or erased?
+   *
+   * One rule in one place: an element is out of reach if it or its layer is
+   * hidden or locked. Locking is what lets you annotate a PDF printout
+   * without nudging it.
+   */
+  isInteractive(element) {
+    if (!element || element.visible === false || element.locked) return false;
+    const layer = this.store.data.canvas.layers
+      ?.find((l) => l.id === (element.layerId ?? this.store.data.canvas.layers[0]?.id));
+    return !layer || (layer.visible !== false && !layer.locked);
+  }
+
+  activeLayerId() {
+    const layers = this.store.data.canvas.layers ?? [];
+    const chosen = layers.find((l) => l.id === this._activeLayerId);
+    return (chosen ?? layers.find((l) => !l.locked && l.visible !== false) ?? layers[0])?.id;
+  }
+
   // ── Selection ─────────────────────────────
   setSelection(ids) {
     this.selection = new Set(ids);
     this.scene.ink.setHighlighted(this.selection);
     this.scene.objects.setHighlighted(this.selection);
     this.selectionController.refresh();
+    this.panel?.markSelection();
     this._updateStatus();
   }
 
@@ -168,6 +224,258 @@ class App {
       return;
     }
     Object.assign(this.settings[kind], patch);
+  }
+
+  /**
+   * Stamp a new element with the layer it belongs to and a name for the
+   * panel. Everything created anywhere goes through here.
+   */
+  adopt(element) {
+    element.layerId = element.layerId ?? this.activeLayerId();
+    // Objects and shapes get a name, because the panel lists them. Freehand ink
+    // never does: it isn't listed, and naming every stroke would bloat the file.
+    const listed = !element.kind || element.kind === "shape";
+    if (listed && !element.name) element.name = this.autoName(element);
+    return element;
+  }
+
+  autoName(element) {
+    // Shapes are strokes, but to you they're objects, so they get numbered
+    // names of their own: Rect 1, Rect 2, Ellipse 1.
+    if (element.kind === "shape") {
+      const label = String(element.shape ?? "shape").replace(/^./, (c) => c.toUpperCase());
+      const used = this.store.strokes.filter((s) => s.shape === element.shape).length;
+      return `${label} ${used + 1}`;
+    }
+
+    const label = {
+      latex: "Formula", image: "Image", pdfpage: "PDF page",
+      graph: "Plot", code: "Code", text: "Text",
+    }[element.type] ?? "Object";
+
+    if (element.type === "code" && element.payload?.filename) {
+      return element.payload.filename;
+    }
+    const used = this.store.objects.filter((o) => o.type === element.type).length;
+    return `${label} ${used + 1}`;
+  }
+
+  // ── Panel support ─────────────────────────
+  /** Which page an element actually sits on, worked out from its position. */
+  pageContaining(element) {
+    const bounds = element.kind
+      ? this.selectionController.boundsOf([element.id])
+      : { minX: element.x, minY: element.y,
+          maxX: element.x + element.w, maxY: element.y + element.h };
+    if (!bounds) return null;
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cy = (bounds.minY + bounds.maxY) / 2;
+    return (this.store.data.canvas.pages ?? []).find(
+      (p) => cx >= p.x && cx <= p.x + p.w && cy >= p.y && cy <= p.y + p.h) ?? null;
+  }
+
+  /**
+   * A panel row can stand for several elements — a placed custom shape is
+   * many strokes but one object — so everything here takes a SET of ids.
+   */
+  selectFromPanel(ids, additive) {
+    const wanted = asIds(ids);
+    this.setTool("select");
+    this.setSelection(additive
+      ? [...new Set([...this.selection, ...wanted])]
+      : wanted);
+  }
+
+  /**
+   * Bring up whatever "properties" means for this element: an object opens its
+   * own editor, a shape gets the same menu a right-click would give it.
+   */
+  editElement(id, anchor) {
+    const element = this.store.find(id);
+    if (!element || !this.isInteractive(element)) return;
+
+    const node = this.scene.objects.elementFor(id);
+    if (node) {
+      // The same event the canvas double-click sends, so there is one path in
+      node.dispatchEvent(new CustomEvent("ntbk:edit"));
+      return;
+    }
+
+    const rect = anchor?.getBoundingClientRect?.();
+    openContextMenu(this, rect ? rect.right + 6 : 120, rect ? rect.top : 120);
+  }
+
+  /** Right-click in the tree: the full picture of one element. */
+  inspectElement(id, anchor) {
+    closeContextMenu();
+    openInspector(this, id, anchor);
+  }
+
+  /**
+   * Single click in the tree: say where it is, without going there.
+   *
+   * The selection outline already marks it when it's on screen. When it's
+   * pages away that outline is invisible, so the page number and a pointer at
+   * the edge of the viewport are what actually answer "where is it".
+   */
+  locateElement(ids) {
+    const wanted = asIds(ids);
+    const element = this.store.find(wanted[0]);
+    if (!element) return;
+    const page = this.pageContaining(element);
+    const name = element.name ?? "Item";
+    this._flash(page ? `${name} — page ${page.index + 1}` : `${name} — off-page`);
+    this._pointAt(wanted);
+  }
+
+  _pointAt(ids) {
+    const wanted = asIds(ids);
+    this._clearLocator();
+    const bounds = this.selectionController.boundsOf(wanted);
+    if (!bounds) return;
+
+    const rect = this.host.getBoundingClientRect();
+    const scale = this.scene.scale;
+    const cx = ((bounds.minX + bounds.maxX) / 2) * scale + this.scene.view.x;
+    const cy = ((bounds.minY + bounds.maxY) / 2) * scale + this.scene.view.y;
+    // On screen already: the selection outline is the better marker
+    if (cx >= 0 && cx <= rect.width && cy >= 0 && cy <= rect.height) return;
+
+    const margin = 30;
+    const x = Math.min(Math.max(cx, margin), rect.width - margin);
+    const y = Math.min(Math.max(cy, margin), rect.height - margin);
+
+    const el = document.createElement("div");
+    el.className = "ntbk-locator";
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.setProperty("--angle", `${(Math.atan2(cy - y, cx - x) * 180) / Math.PI}deg`);
+    const page = this.pageContaining(this.store.find(wanted[0]));
+    el.textContent = page ? String(page.index + 1) : "?";
+    this.host.appendChild(el);
+
+    this._locator = el;
+    // Panning or zooming moves what it points at, so it can't outlive that
+    this._clearLocatorOn = () => this._clearLocator();
+    this.host.addEventListener("scene:transform", this._clearLocatorOn, { once: true });
+    this._locatorTimer = setTimeout(() => this._clearLocator(), 3000);
+  }
+
+  _clearLocator() {
+    clearTimeout(this._locatorTimer);
+    if (this._clearLocatorOn) {
+      this.host.removeEventListener("scene:transform", this._clearLocatorOn);
+      this._clearLocatorOn = null;
+    }
+    this._locator?.remove();
+    this._locator = null;
+  }
+
+  /** Double-click in the tree: go to it, wherever it is, and select it. */
+  goToElement(ids) {
+    const wanted = asIds(ids);
+    const element = this.store.find(wanted[0]);
+    if (!element) return;
+    this._clearLocator();
+    const bounds = this.selectionController.boundsOf(wanted);
+    if (!bounds) return;
+
+    const rect = this.host.getBoundingClientRect();
+    const scale = this.scene.scale;
+    this.scene.view.x = rect.width / 2 - ((bounds.minX + bounds.maxX) / 2) * scale;
+    this.scene.view.y = rect.height / 2 - ((bounds.minY + bounds.maxY) / 2) * scale;
+    this.scene._applyView();
+    this.scene._emitTransform();
+
+    this.setTool("select");
+    this.setSelection(wanted);
+    const page = this.pageContaining(element);
+    if (page) this._flash(`Page ${page.index + 1}`);
+  }
+
+  /** Outline an element while its row is hovered in the tree. */
+  highlightElement(ids) {
+    for (const node of this.host.querySelectorAll(".is-peeked")) {
+      node.classList.remove("is-peeked");
+    }
+    if (!ids) return;
+    for (const id of asIds(ids)) {
+      const element = this.store.find(id);
+      if (!element) continue;
+      const node = element.kind
+        ? this.host.querySelector(`.ntbk-ink path[data-id="${id}"]`)
+        : this.scene.objects.elementFor(id);
+      node?.classList.add("is-peeked");
+    }
+  }
+
+  setElementFlag(ids, key, value) {
+    const wanted = asIds(ids).filter((id) => this.store.find(id));
+    if (!wanted.length) return;
+    const label = key === "visible"
+      ? (value ? "Show" : "Hide")
+      : (value ? "Lock" : "Unlock");
+    // Every piece of a group flips together, as one undo step
+    this.history.run(patchElements(wanted.map((id) => ({
+      id,
+      before: { [key]: this.store.find(id)[key] },
+      after: { [key]: value },
+    })), label));
+    // Hidden or locked elements must not stay selected
+    this.setSelection([...this.selection].filter(
+      (id) => this.isInteractive(this.store.find(id))));
+  }
+
+  renameElement(ids, name) {
+    const wanted = asIds(ids).filter((id) => this.store.find(id));
+    if (!wanted.length) return;
+    // Renaming a group renames every piece, so they stay one thing
+    this.history.run(patchElements(wanted.map((id) => ({
+      id,
+      before: { name: this.store.find(id).name },
+      after: { name },
+    })), "Rename"));
+  }
+
+  // ── Layers ────────────────────────────────
+  addLayer() {
+    const layers = this.store.data.canvas.layers ?? [];
+    const next = [...layers, createLayer(`Layer ${layers.length + 1}`)];
+    // Claim it BEFORE the command runs: the store change is what repaints the
+    // panel, so setting this afterwards leaves the old layer looking active.
+    this._activeLayerId = next[next.length - 1].id;
+    this.history.run(setLayersCommand(layers, next, "Add layer"));
+  }
+
+  setActiveLayer(id) {
+    this._activeLayerId = id;
+    this._flash(`Drawing on ${this.store.data.canvas.layers.find((l) => l.id === id)?.name}`);
+    this.panel?.render();
+  }
+
+  setLayerFlag(id, key, value) {
+    const layers = this.store.data.canvas.layers ?? [];
+    const next = layers.map((l) => (l.id === id ? { ...l, [key]: value } : l));
+    const label = key === "visible"
+      ? (value ? "Show layer" : "Hide layer")
+      : (value ? "Lock layer" : "Unlock layer");
+    this.history.run(setLayersCommand(layers, next, label));
+    // Hiding or locking a layer takes everything on it out of reach
+    this.setSelection([...this.selection].filter(
+      (id) => this.isInteractive(this.store.find(id))));
+  }
+
+  /** Move the selection onto a layer. */
+  moveSelectionToLayer(layerId) {
+    const ids = [...this.selection];
+    if (!ids.length) return;
+    this.history.run(patchElements(
+      ids.map((id) => ({
+        id,
+        before: { layerId: this.store.find(id).layerId },
+        after: { layerId },
+      })), "Change layer"));
+    this.scene.renderAll();
   }
 
   // ── Transforms ────────────────────────────
@@ -292,6 +600,32 @@ class App {
   }
 
   /** Bring a page into view, top edge just below the ribbon. */
+  /** Type a page number in the status bar to go there. */
+  _wirePageInput() {
+    const input = document.querySelector("#status-page-input");
+    if (!input) return;
+    const go = () => {
+      const pages = this.store.data.canvas.pages;
+      const wanted = Number.parseInt(input.value, 10);
+      if (!Number.isFinite(wanted)) { this._updateStatus(); return; }
+      // Out of range snaps to the nearest real page rather than refusing
+      const index = Math.min(Math.max(wanted, 1), pages.length) - 1;
+      this.scrollToPage(pages[index]);
+      // Write the corrected number back here rather than leaving it to the
+      // status refresh: type 99 in a 5-page file and the box has to say 5,
+      // whatever the focus happens to be doing
+      input.value = String(index + 1);
+      this._updateStatus();
+    };
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();          // digits must never reach the canvas
+      if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+      if (event.key === "Escape") { this._updateStatus(); input.blur(); }
+    });
+    input.addEventListener("blur", go);
+    input.addEventListener("focus", () => input.select());
+  }
+
   scrollToPage(page) {
     const rect = this.host.getBoundingClientRect();
     const scale = this.scene.scale;
@@ -333,7 +667,7 @@ class App {
     const centre = this.scene.toScene(
       rect.left + rect.width / 2, rect.top + rect.height / 3);
     const object = createLatexObject(Math.round(centre.x - 120), Math.round(centre.y - 48));
-    this.history.run(addElements([object], "Insert LaTeX"));
+    this.history.run(addElements([this.adopt(object)], "Insert LaTeX"));
     this.setTool("select");
     this.setSelection([object.id]);
   }
@@ -350,10 +684,16 @@ class App {
       const size = await measureImage(asset.url);
 
       // Land at a readable size: no wider than half the viewport, and never
-      // blown up past its own resolution
+      // blown up past its own resolution.
+      //
+      // "Its own resolution" has to be measured in DEVICE pixels. Capping at
+      // one image pixel per CSS pixel still stretches every image 2x on a
+      // Retina screen, which is exactly what made imported pictures look
+      // soft next to the crisp vector ink beside them.
       const rect = this.host.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
       const maxWidth = (rect.width * 0.5) / this.scene.scale;
-      const scale = Math.min(1, maxWidth / size.width);
+      const scale = Math.min(1 / dpr, maxWidth / size.width);
       const w = Math.round(size.width * scale);
       const h = Math.round(size.height * scale);
 
@@ -367,7 +707,7 @@ class App {
       }));
     }
 
-    this.history.run(addElements(created, created.length > 1 ? "Insert images" : "Insert image"));
+    this.history.run(addElements(created.map((o) => this.adopt(o)), created.length > 1 ? "Insert images" : "Insert image"));
     this.setTool("select");
     this.setSelection(created.map((o) => o.id));
   }
@@ -453,7 +793,7 @@ class App {
       });
     }
 
-    this.history.run(addElements(created,
+    this.history.run(addElements(created.map((o) => this.adopt(o)),
       `Insert ${created.length} PDF page${created.length === 1 ? "" : "s"}`));
 
     if (placement === "pages" && canvas.pages.length) {
@@ -464,13 +804,212 @@ class App {
     this._flash(`Inserted ${created.length} page${created.length === 1 ? "" : "s"} from ${fileName}`);
   }
 
+  /**
+   * Drop a text box at a point, snapped to the page's grid.
+   *
+   * Free placement to the exact pixel makes it impossible to line two
+   * paragraphs up. Snapping to the same grid the page already draws gives
+   * the discrete feel of a text editor, and you can still drag it anywhere
+   * afterwards.
+   */
+  insertText(point) {
+    const snapped = this.snapToGrid(point);
+    const object = createTextObject(snapped.x, snapped.y);
+    this.history.run(addElements([this.adopt(object)], "Add text"));
+    this.setTool("select");
+    this.setSelection([object.id]);
+    // Give it the caret straight away — you clicked to type
+    requestAnimationFrame(() => this.objectHandle(object.id)?.focus?.());
+    return object;
+  }
+
+  /** Nearest grid intersection on the page under a point. */
+  snapToGrid(point) {
+    const background = this.store.data.canvas.background ?? {};
+    const step = background.spacing > 4 ? background.spacing : 20;
+    const page = (this.store.data.canvas.pages ?? []).find(
+      (p) => point.x >= p.x && point.x <= p.x + p.w
+          && point.y >= p.y && point.y <= p.y + p.h);
+    const originX = page?.x ?? 0;
+    const originY = page?.y ?? 0;
+    return {
+      x: originX + Math.round((point.x - originX) / step) * step,
+      y: originY + Math.round((point.y - originY) / step) * step,
+    };
+  }
+
+  // ── Custom shapes ─────────────────────────
+  /**
+   * Save whatever is selected as a reusable shape.
+   *
+   * Stored normalised to a unit box so it can be dropped at any size later,
+   * and as a LIST of strokes so a multi-part drawing keeps its colours.
+   * Placing one selects every part, so it moves and deletes as one thing.
+   */
+  async saveSelectionAsShape(name) {
+    const ids = this.selectedStrokes();
+    if (!ids.length) return this._flash("Select some strokes first");
+
+    const bounds = this.selectionController.boundsOf(ids);
+    if (!bounds) return this._flash("Nothing measurable in that selection");
+    const width = Math.max(1, bounds.maxX - bounds.minX);
+    const height = Math.max(1, bounds.maxY - bounds.minY);
+
+    const strokes = ids.map((id) => {
+      const stroke = this.store.find(id);
+      const points = [...stroke.points];
+      // Normalise into 0..1 so the shape scales to whatever box it lands in
+      for (let i = 0; i < points.length; i += stroke.stride) {
+        points[i] = (points[i] - bounds.minX) / width;
+        points[i + 1] = (points[i + 1] - bounds.minY) / height;
+      }
+      return { kind: stroke.kind, shape: stroke.shape, stride: stroke.stride,
+               points, style: { ...stroke.style } };
+    });
+
+    const result = await bridge.saveShape(name, {
+      name, aspect: width / height, strokes,
+    });
+    if (result?.ok) {
+      this._flash(`Saved "${result.name}" \u2014 it's in the Shapes menu`);
+      await this.loadShapes();
+    } else {
+      this._flash(result?.error ?? "Could not save that shape");
+    }
+  }
+
+  async loadShapes() {
+    this.customShapes = await bridge.listShapes();
+    return this.customShapes;
+  }
+
+  /** Drop a saved shape onto the page, sized to a sensible default. */
+  placeCustomShape(entry, size = 160) {
+    const shape = entry.shape ?? entry;
+    const rect = this.host.getBoundingClientRect();
+    const centre = this.scene.toScene(
+      rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const aspect = shape.aspect || 1;
+    const width = size;
+    const height = size / aspect;
+    const originX = centre.x - width / 2;
+    const originY = centre.y - height / 2;
+
+    // One id shared by every piece: that is what makes the panel show a
+    // placed shape as a single object instead of a pile of loose strokes
+    const groupId = newId("gr");
+
+    const created = shape.strokes.map((template) => {
+      const points = [...template.points];
+      for (let i = 0; i < points.length; i += template.stride) {
+        points[i] = originX + points[i] * width;
+        points[i + 1] = originY + points[i + 1] * height;
+      }
+      return this.adopt(createStroke({
+        kind: template.kind ?? "shape",
+        shape: template.shape,
+        points,
+        style: { ...template.style },
+        name: shape.name,
+        groupId,
+      }));
+    });
+
+    this.history.run(addElements(created, `Place ${shape.name}`));
+    this.setTool("select");
+    this.setSelection(created.map((stroke) => stroke.id));
+    return created;
+  }
+
+  /** A second notebook beside this one, with its own document and terminals. */
+  async newWindow() {
+    const result = await bridge.newWindow();
+    if (!result?.ok) this._flash(result?.error ?? "Could not open a window");
+  }
+
+  /** Keep the window named after the document it holds. */
+  _syncTitle() {
+    bridge.setTitle(this.store.data.meta?.title || "untitled");
+  }
+
+  // ── Export ────────────────────────────────
+  /**
+   * Render every page and bind them into a PDF.
+   *
+   * `print` hands the finished file straight to the system viewer, which is
+   * where the real print dialogue lives — the student gets their own printer
+   * list and "Save as PDF" without us reimplementing either.
+   */
+  async exportPdf({ print = false, clipToMargins = false } = {}) {
+    const pages = this.store.data.canvas.pages ?? [];
+    if (!pages.length) return this._flash("Nothing to export");
+
+    // The ruler is an instrument, not content — it must never print
+    const rulerWasOut = this.ruler.visible;
+    if (rulerWasOut) this.ruler.hide();
+    const hadSelection = [...this.selection];
+    this.setSelection([]);
+
+    this._flash(print ? "Preparing to print\u2026" : "Building the PDF\u2026");
+    try {
+      const rendered = [];
+      for (const page of pages) {
+        rendered.push({ png: await renderPageToPng(this, page, undefined, { clipToMargins }) });
+      }
+      const name = `${this.store.data.meta.title || "untitled"}.pdf`;
+      const result = await bridge.exportPdf(rendered, name, print);
+      if (result?.cancelled) this._flash("Cancelled");
+      else if (result?.ok) {
+        // Say WHERE it went. "Saved" on its own is how a file gets lost.
+        const where = String(result.path ?? "").split("/").slice(-2).join("/");
+        this._flash(print
+          ? `Sent ${result.pages} page${result.pages === 1 ? "" : "s"} to print \u2014 ${where}`
+          : `Saved ${result.pages} page${result.pages === 1 ? "" : "s"} \u2192 ${where}`);
+      } else {
+        this._flash(result?.error ?? "Could not write the PDF");
+      }
+    } catch (error) {
+      this._flash(`Export failed: ${error.message}`);
+    } finally {
+      if (rulerWasOut) this.ruler.show();
+      if (hadSelection.length) this.setSelection(hadSelection);
+    }
+  }
+
+  // ── Instruments ───────────────────────────
+  /** The ruler is an instrument, not content: never saved, gone when hidden. */
+  toggleRuler() {
+    const on = this.ruler.toggle();
+    this._flash(on ? "Ruler out \u2014 ink snaps to its edge" : "Ruler away");
+    this._syncRulerButton();
+    return on;
+  }
+
+  setRulerLength(cm) {
+    this.ruler.lengthCm = Math.min(100, Math.max(5, Number(cm) || 30));
+    this.ruler._buildTicks();
+    this.ruler.place();
+  }
+
+  _syncRulerButton() {
+    const button = document.querySelector('[data-action="ruler"]');
+    button?.classList.toggle("is-active", this.ruler.visible);
+  }
+
+  /** Bold the current text selection, if a text box has the caret. */
+  toggleTextBold() {
+    for (const id of this.selection) {
+      this.objectHandle(id)?.toggleBold?.();
+    }
+  }
+
   insertCode(filename = "untitled.py") {
     const rect = this.host.getBoundingClientRect();
     const centre = this.scene.toScene(
       rect.left + rect.width / 2, rect.top + rect.height / 2);
     const object = createCodeObject(
       Math.round(centre.x - 280), Math.round(centre.y - 190), filename);
-    this.history.run(addElements([object], "Insert code cell"));
+    this.history.run(addElements([this.adopt(object)], "Insert code cell"));
     this.setTool("select");
     this.setSelection([object.id]);
   }
@@ -499,7 +1038,7 @@ class App {
     const object = createGraphObject(0, 0, kind);
     object.x = Math.round(centre.x - object.w / 2);
     object.y = Math.round(centre.y - object.h / 2);
-    this.history.run(addElements([object], "Insert plot"));
+    this.history.run(addElements([this.adopt(object)], "Insert plot"));
     this.setTool("select");
     this.setSelection([object.id]);
     this.editGraph(object.id);
@@ -512,13 +1051,64 @@ class App {
     this.graphEditor = new GraphEditor(this, object);
   }
 
-  updateObjectPayload(id, payload) {
+  updateObjectPayload(id, payload, label = "Edit contents") {
     const object = this.store.find(id);
     if (!object) return;
     this.history.run(patchElements(
       [{ id, before: { payload: object.payload }, after: { payload } }],
-      "Edit LaTeX",
+      label,
     ));
+  }
+
+  /** The live handle of a mounted object, for controls that drive it directly. */
+  objectHandle(id) {
+    return this.scene.objects.nodes.get(id)?.handle ?? null;
+  }
+
+  /** Apply a payload with no history entry — for live previews while typing. */
+  previewObjectPayload(id, payload) {
+    if (!this.store.find(id)) return;
+    this.store.patchMany([{ id, changes: { payload } }]);
+  }
+
+  /** Record a payload edit that previews have already applied. */
+  recordPayloadEdit(id, before, after, label = "Edit contents") {
+    this.history.record(patchElements(
+      [{ id, before: { payload: before }, after: { payload: after } }], label));
+  }
+
+  /** Swap a 3D plot to a named camera preset. */
+  setPlotView(id, preset) {
+    const object = this.store.find(id);
+    if (!object?.payload) return;
+    this.updateObjectPayload(id,
+      { ...object.payload, view: { ...VIEW_PRESETS[preset] } }, "Change view");
+  }
+
+  /** Restyle one element by id, rather than whatever happens to be selected. */
+  setElementStyle(id, patch) {
+    const element = this.store.find(id);
+    if (!element?.style) return;
+    this.history.run(patchElements(
+      [{ id, before: { style: { ...element.style } },
+         after: { style: { ...element.style, ...patch } } }],
+      "Restyle"));
+    this.selectionController.refresh();
+  }
+
+  /** Resize or move one object by id. Strokes have no box to set. */
+  setElementBox(id, patch) {
+    const element = this.store.find(id);
+    if (!element || element.kind) return;
+    const before = {};
+    const after = {};
+    for (const key of Object.keys(patch)) {
+      before[key] = element[key];
+      after[key] = patch[key];
+    }
+    this.history.run(patchElements([{ id, before, after }],
+      "w" in patch || "h" in patch ? "Resize" : "Move"));
+    this.selectionController.refresh();
   }
 
   // ── Files ─────────────────────────────────
@@ -528,6 +1118,7 @@ class App {
     this.store.replaceDocument(createEmptyDocument());
     this.history.clear();
     this.setSelection([]);
+    this._syncTitle();
   }
 
   async saveDocument() {
@@ -544,7 +1135,13 @@ class App {
     }
     const saved = await bridge.saveDocument(
       document, this.assets.files(), name, sources);
-    if (saved) this._flash(`Saved ${saved}`);
+    if (saved) {
+      // The file may have been saved under a new name
+      const stem = String(saved).split("/").pop().replace(/\.ntbk$/i, "");
+      if (stem) this.store.data.meta.title = stem;
+      this._syncTitle();
+      this._flash(`Saved ${saved}`);
+    }
   }
 
   async openDocument() {
@@ -562,6 +1159,7 @@ class App {
     this.store.replaceDocument(data);
     this.history.clear();
     this.setSelection([]);
+    this._syncTitle();
     this._flash("Opened");
   }
 
@@ -726,8 +1324,12 @@ class App {
       ?? "";
     const pages = this.store.data.canvas.pages;
     const here = this.currentPage();
-    document.querySelector("#status-page").textContent =
-      here ? `Page ${here.index + 1} of ${pages.length}` : "";
+    const pageInput = document.querySelector("#status-page-input");
+    // Never overwrite a number being typed
+    if (pageInput && document.activeElement !== pageInput) {
+      pageInput.value = here ? String(here.index + 1) : "";
+    }
+    document.querySelector("#status-page-total").textContent = ` of ${pages.length}`;
 
     document.querySelector("#status-counts").textContent =
       `${strokes} stroke${strokes === 1 ? "" : "s"} · ${objects} object${objects === 1 ? "" : "s"}`
@@ -743,11 +1345,19 @@ class App {
 
   _flash(message) {
     const el = document.querySelector("#status-hint");
-    const previous = el.textContent;
+    // Remember the real hint once, not whatever is on screen: two flashes in
+    // quick succession would otherwise restore each other and the hint would
+    // never come back.
+    this._flashBase ??= el.textContent;
     el.textContent = message;
     clearTimeout(this._flashTimer);
-    this._flashTimer = setTimeout(() => { el.textContent = previous; }, 2500);
+    this._flashTimer = setTimeout(() => { el.textContent = this._flashBase; }, 2500);
   }
+}
+
+/** A panel row may stand for one element or a whole group. */
+function asIds(value) {
+  return Array.isArray(value) ? value : [value];
 }
 
 window.app = new App(document.querySelector("#app"));

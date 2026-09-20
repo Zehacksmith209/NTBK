@@ -1,0 +1,12 @@
+# ntbk — Python runtime dependencies.
+#
+# Only two. Everything else the app uses is JavaScript, bundled into
+# frontend/dist by `npm run build`.
+#
+#   pywebview  the native window wrapping the system webview
+#   pymupdf    rasterises imported PDF pages, and writes exported ones
+#
+# Install:  python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+
+pywebview>=5.0
+pymupdf>=1.24

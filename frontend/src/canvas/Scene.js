@@ -1,3 +1,4 @@
+import { printMarginsOf, PX_PER_MM } from "../model/document.js";
 import { InkLayer } from "./InkLayer.js";
 import { ObjectLayer } from "./ObjectLayer.js";
 import { SpatialIndex } from "./spatial.js";
@@ -27,9 +28,7 @@ export class Scene {
     host.innerHTML = `
       <div class="ntbk-scene">
         <div class="ntbk-pages"></div>
-        <div class="ntbk-layer ntbk-objects"></div>
-        <svg class="ntbk-layer ntbk-ink" xmlns="${SVG_NS}"></svg>
-        <div class="ntbk-layer ntbk-overlay"></div>
+        <div class="ntbk-layers"></div>
         <svg class="ntbk-layer ntbk-chrome" xmlns="${SVG_NS}"></svg>
         <div class="ntbk-proxy" hidden></div>
       </div>`;
@@ -41,12 +40,16 @@ export class Scene {
     // Far simpler than pointing Moveable at a dozen individual SVG paths.
     this.proxyEl = host.querySelector(".ntbk-proxy");
 
-    this.ink = new InkLayer(host.querySelector(".ntbk-ink"));
-    this.objects = new ObjectLayer(
-      host.querySelector(".ntbk-objects"),
-      host.querySelector(".ntbk-overlay"),
-      context,
-    );
+    this.layersEl = host.querySelector(".ntbk-layers");
+    this.context = context;
+
+    // One ink layer and one object layer PER user layer, stacked in list
+    // order. The old fixed arrangement could only ever put every stroke
+    // above every object; this can interleave them.
+    this.inkByLayer = new Map();
+    this.objectsByLayer = new Map();
+    this.ink = new InkRouter(this);
+    this.objects = new ObjectRouter(this);
     this.index = new SpatialIndex();
 
     // ── View transform ──
@@ -62,6 +65,7 @@ export class Scene {
 
     host.addEventListener("wheel", this._onWheel, { passive: false });
 
+    this.buildLayers();
     this.renderPages();
     this.renderAll();
     store.subscribe((change) => this._onChange(change));
@@ -80,7 +84,17 @@ export class Scene {
 
   _applyView() {
     const { x, y, scale } = this.view;
-    this.sceneEl.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    // Land the page on WHOLE device pixels.
+    //
+    // A fractional offset — which any pan leaves behind — puts every pixel
+    // halfway between two real ones, so the display resamples the lot. Ink
+    // and images both go soft, and the softness changes as you pan, which is
+    // what makes it feel like quality is degrading. `view` keeps the exact
+    // value, so nothing drifts; only what is drawn is snapped.
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.round(x * dpr) / dpr;
+    const py = Math.round(y * dpr) / dpr;
+    this.sceneEl.style.transform = `translate(${px}px, ${py}px) scale(${scale})`;
   }
 
   _emitTransform() {
@@ -129,6 +143,54 @@ export class Scene {
     this._emitTransform();
   }
 
+  // ── Layers ────────────────────────────────
+  get layers() {
+    return this.store.data.canvas.layers ?? [];
+  }
+
+  layerIdFor(element) {
+    return element.layerId ?? this.layers[0]?.id;
+  }
+
+  /** Rebuild the container stack to match the layer list and its order. */
+  buildLayers() {
+    for (const ink of this.inkByLayer.values()) ink.el.parentElement?.remove();
+    this.inkByLayer.clear();
+    this.objectsByLayer.clear();
+    this.layersEl.innerHTML = "";
+
+    // Layer 1 sits on TOP, so the list is painted back to front: the last
+    // layer goes down first and Layer 1 lands over everything.
+    for (const layer of [...this.layers].reverse()) {
+      const holder = document.createElement("div");
+      holder.className = "ntbk-layer-stack";
+      holder.dataset.layer = layer.id;
+      holder.hidden = layer.visible === false;
+
+      // Order inside a layer: objects you write on, then ink, then objects
+      // you work in
+      const under = document.createElement("div");
+      under.className = "ntbk-layer ntbk-objects";
+      const ink = document.createElementNS(SVG_NS, "svg");
+      ink.setAttribute("class", "ntbk-layer ntbk-ink");
+      const over = document.createElement("div");
+      over.className = "ntbk-layer ntbk-overlay";
+
+      holder.append(under, ink, over);
+      this.layersEl.appendChild(holder);
+
+      this.inkByLayer.set(layer.id, new InkLayer(ink));
+      this.objectsByLayer.set(layer.id, new ObjectLayer(under, over, this.context));
+    }
+  }
+
+  refreshLayerVisibility() {
+    for (const layer of this.layers) {
+      const holder = this.layersEl.querySelector(`[data-layer="${layer.id}"]`);
+      if (holder) holder.hidden = layer.visible === false;
+    }
+  }
+
   // ── Rendering ─────────────────────────────
   renderPages() {
     const { pages, background } = this.store.data.canvas;
@@ -145,6 +207,15 @@ export class Scene {
         el.style.setProperty("--grid-color", background.color);
         el.classList.add("is-grid");
       }
+      // The printer's dead zone, drawn as a guide. It is a hint, never
+      // content: it is not selectable and it is excluded from printing.
+      const margins = printMarginsOf(this.store.data);
+      const guide = document.createElement("div");
+      guide.className = "ntbk-page-margins";
+      guide.style.inset = [margins.top, margins.right, margins.bottom, margins.left]
+        .map((mm) => `${(mm * PX_PER_MM).toFixed(1)}px`).join(" ");
+      el.appendChild(guide);
+
       const number = document.createElement("div");
       number.className = "ntbk-page-number";
       number.textContent = String(page.index + 1);
@@ -155,14 +226,22 @@ export class Scene {
   }
 
   renderAll() {
-    this.ink.clear();
-    this.objects.clear();
+    for (const ink of this.inkByLayer.values()) ink.clear();
+    for (const objects of this.objectsByLayer.values()) objects.clear();
+
     for (const stroke of this.store.strokes) this.ink.render(stroke);
     for (const object of this.store.objects) this.objects.render(object);
     this.index.rebuild(this.store.strokes);
   }
 
   _onChange(change) {
+    if (change.type === "layers") {
+      this.buildLayers();
+      this.renderAll();
+      this.host.dispatchEvent(new CustomEvent("scene:changed", { detail: change }));
+      return;
+    }
+
     if (change.type === "pages") {
       this.renderPages();
       this.host.dispatchEvent(new CustomEvent("scene:changed", { detail: change }));
@@ -170,6 +249,10 @@ export class Scene {
     }
 
     if (change.type === "reload") {
+      // A new document brings its own layers. Rebuilding the stacks first is
+      // what stops every element routing to the previous document's layer id
+      // and disappearing without a word.
+      this.buildLayers();
       this.renderPages();
       this.renderAll();
       this.host.dispatchEvent(new CustomEvent("scene:reload"));
@@ -219,5 +302,90 @@ export class Scene {
 
   clearChrome() {
     this.chromeEl.innerHTML = "";
+  }
+}
+
+
+// ─────────────────────────────────────────────
+//  ROUTERS
+//
+//  The rest of the app still says scene.ink.render(stroke) without caring
+//  which layer it lands in. These send each element to its layer's renderer
+//  and hide the fact that there are now many.
+// ─────────────────────────────────────────────
+/**
+ * Falling back to the bottom layer for an element whose layer has gone missing.
+ * Showing it in the wrong place is recoverable; silently not drawing it is not.
+ */
+function firstOf(map) {
+  for (const value of map.values()) return value;
+  return null;
+}
+
+class InkRouter {
+  constructor(scene) { this.scene = scene; }
+
+  _for(stroke) {
+    return this.scene.inkByLayer.get(this.scene.layerIdFor(stroke))
+      ?? firstOf(this.scene.inkByLayer);
+  }
+
+  render(stroke) {
+    if (stroke.visible === false) { this.remove(stroke.id); return null; }
+    return this._for(stroke)?.render(stroke) ?? null;
+  }
+
+  remove(id) {
+    for (const ink of this.scene.inkByLayer.values()) ink.remove(id);
+  }
+
+  clear() {
+    for (const ink of this.scene.inkByLayer.values()) ink.clear();
+  }
+
+  setHighlighted(ids) {
+    for (const ink of this.scene.inkByLayer.values()) ink.setHighlighted(ids);
+  }
+}
+
+class ObjectRouter {
+  constructor(scene) { this.scene = scene; }
+
+  _for(object) {
+    return this.scene.objectsByLayer.get(this.scene.layerIdFor(object))
+      ?? firstOf(this.scene.objectsByLayer);
+  }
+
+  get nodes() {
+    const all = new Map();
+    for (const layer of this.scene.objectsByLayer.values()) {
+      for (const [id, node] of layer.nodes) all.set(id, node);
+    }
+    return all;
+  }
+
+  render(object) {
+    if (object.visible === false) { this.remove(object.id); return null; }
+    return this._for(object)?.render(object) ?? null;
+  }
+
+  remove(id) {
+    for (const layer of this.scene.objectsByLayer.values()) layer.remove(id);
+  }
+
+  clear() {
+    for (const layer of this.scene.objectsByLayer.values()) layer.clear();
+  }
+
+  elementFor(id) {
+    for (const layer of this.scene.objectsByLayer.values()) {
+      const el = layer.elementFor(id);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  setHighlighted(ids) {
+    for (const layer of this.scene.objectsByLayer.values()) layer.setHighlighted(ids);
   }
 }

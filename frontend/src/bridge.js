@@ -26,6 +26,17 @@ function toBase64(bytes) {
   return btoa(binary);
 }
 
+/** Wait for one bridge method to actually exist, not just the api object. */
+async function waitForMethod(name, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const fn = api()?.[name];
+    if (typeof fn === "function") return fn.bind(api());
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return null;
+}
+
 function fromBase64(text) {
   const binary = atob(text);
   const bytes = new Uint8Array(binary.length);
@@ -90,6 +101,62 @@ export const bridge = {
     link.click();
     URL.revokeObjectURL(url);
     return suggestedName;
+  },
+
+  /** A notebook this window was launched with, if any. Handed over once. */
+  async pendingOpen() {
+    // Being "ready" is not the same as being callable: pywebview creates
+    // window.pywebview.api first and attaches the methods a moment later, so
+    // asking at startup finds the object but not the function on it.
+    const method = await waitForMethod("take_pending_open");
+    if (!method) return null;
+    const payload = await method();
+    if (!payload) return null;
+    const parsed = JSON.parse(payload);
+    const assets = new Map();
+    for (const [path, b64] of Object.entries(parsed.assets ?? {})) {
+      assets.set(path, fromBase64(b64));
+    }
+    return { data: JSON.parse(parsed.document), assets };
+  },
+
+  /** Open another notebook in its own window. */
+  async newWindow() {
+    if (!api()) return { ok: false, error: "Extra windows need the desktop app" };
+    const raw = await api().new_window();
+    return raw ? JSON.parse(raw) : { ok: false };
+  },
+
+  /** Name the window after its document. */
+  async setTitle(title) {
+    if (!api()) { document.title = title ? `${title} — ntbk` : "ntbk"; return; }
+    await api().set_title(title ?? "");
+  },
+
+  /** Hand rendered A4 pages to Python to be bound into a PDF. */
+  async exportPdf(pages, suggestedName = "untitled.pdf", openAfter = false) {
+    if (!api()) return { ok: false, error: "PDF export needs the desktop app" };
+    const raw = await api().export_pdf(pages, suggestedName, openAfter);
+    return raw ? JSON.parse(raw) : { ok: false };
+  },
+
+  async saveShape(name, shape) {
+    if (!api()) return { ok: false, error: "Saving shapes needs the desktop app" };
+    return JSON.parse(await api().save_shape(name, JSON.stringify(shape)));
+  },
+
+  async listShapes() {
+    if (!api()) return [];
+    try {
+      return JSON.parse(await api().list_shapes()) ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  async deleteShape(name) {
+    if (!api()) return { ok: false };
+    return JSON.parse(await api().delete_shape(name));
   },
 
   /** @returns {{ data, assets: Map<string, Uint8Array> }|null} */

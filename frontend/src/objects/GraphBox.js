@@ -1,9 +1,10 @@
 import JXG from "jsxgraph";
 import { registerObjectType } from "./registry.js";
+import { typeableReadout } from "../ui/NumberField.js";
 import { createObject } from "../model/document.js";
 import {
-  createGraphSpec, buildBoard, compileExpression, compileSurface,
-  parseData, DEFAULT_COLORS, VIEW_PRESETS, applyView3D, surfacesOf,
+  createGraphSpec, buildBoard, compileExpression, compileSurface, compile2d,
+  isEquation, parseData, DEFAULT_COLORS, VIEW_PRESETS, applyView3D, surfacesOf,
 } from "../graph/GraphRenderer.js";
 
 // ─────────────────────────────────────────────
@@ -127,6 +128,16 @@ registerObjectType("graph", {
         if (resizedOnly && context.isTransforming?.()) stretch(next);
         else draw(next);
       },
+      /**
+       * Move the camera without rebuilding the board.
+       *
+       * Rebuilding a 3D board costs ~113ms, so a slider drag that rebuilt per
+       * frame would judder. The inspector drives this while you drag and
+       * writes the view into the document only when you let go.
+       */
+      applyView(view) {
+        applyView3D(board?.ntbkView3D, view);
+      },
       destroy() { if (board) JXG.JSXGraph.freeBoard(board); },
     };
   },
@@ -137,6 +148,130 @@ registerObjectType("graph", {
 //  A live board you can pan, zoom and edit, then
 //  close to commit what you see.
 // ─────────────────────────────────────────────
+/**
+ * The "y = …" rows: colour swatch, expression, remove.
+ *
+ * Shared by the floating plot editor and the inspector's Editor tab, so there
+ * is one definition of what a function row is and they cannot drift apart.
+ * The caller owns the data; this only reports what you did to it.
+ */
+export function buildExpressionRows(container, items, options) {
+  // A surface is a function of x AND y, so validating one with the
+  // single-variable compiler rejects every valid expression it has.
+  const { prefix = "y =", validate = compile2d, onEdit, onRemove } = options;
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "ntbk-ge-row";
+    row.innerHTML = `
+      <span class="ntbk-ge-swatch" style="background:${item.color}"></span>
+      <span class="ntbk-ge-y">${prefix}</span>
+      <input type="text" value="${item.expr.replace(/"/g, "&quot;")}" spellcheck="false">
+      <button class="ntbk-ge-del" title="Remove">✕</button>`;
+
+    const input = row.querySelector("input");
+    const label = row.querySelector(".ntbk-ge-y");
+    // "y =" is a lie once you type a whole equation, so it steps aside
+    const showLabel = () => {
+      label.textContent = isEquation(input.value) ? "" : prefix;
+      label.classList.toggle("is-empty", isEquation(input.value));
+    };
+    showLabel();
+    input.addEventListener("input", () => {
+      showLabel();
+      // Bad syntax colours the row but is never pushed at the plotter, so a
+      // half-typed expression doesn't blank the graph under you
+      const ok = validate(input.value) !== null;
+      row.classList.toggle("is-bad", !ok && input.value.trim() !== "");
+      onEdit(index, input.value, ok, input);
+    });
+    input.addEventListener("keydown", (event) => event.stopPropagation());
+    row.querySelector(".ntbk-ge-del").addEventListener("click", () => onRemove(index));
+    container.appendChild(row);
+  });
+}
+
+/**
+ * Iso / Top / Bottom / Front / Side. Shared by the plot editor and the
+ * inspector so the two always offer the same set.
+ */
+export function buildViewPresets(container, onPick) {
+  for (const [label, key] of [
+    ["Iso", "isometric"], ["Top", "top"], ["Bottom", "bottom"],
+    ["Front", "front"], ["Side", "side"],
+  ]) {
+    const button = document.createElement("button");
+    button.className = "ntbk-mini";
+    button.textContent = label;
+    button.addEventListener("click", () => onPick(key));
+    container.appendChild(button);
+  }
+}
+
+/**
+ * Turn / Tilt / Roll — named for what they show you, not the axis they turn
+ * about. `onMove` fires continuously while dragging, `onSettle` once at the
+ * end, which is what keeps one drag to one undo entry.
+ */
+export function buildViewSliders(container, view, { onMove, onSettle }) {
+  const handles = {};
+  for (const [key, label, min, max, hint] of [
+    ["az", "Turn", 0, Math.PI * 2, "around the sides"],
+    ["el", "Tilt", -Math.PI / 2, Math.PI / 2, "top and bottom"],
+    ["bank", "Roll", -Math.PI, Math.PI, "spin in frame"],
+  ]) {
+    const slider = document.createElement("div");
+    slider.className = "ntbk-ge-slider";
+    slider.innerHTML = `
+      <label title="${hint}">${label}</label>
+      <input type="range" min="${min}" max="${max}" step="0.01"
+             value="${view?.[key] ?? 0}">
+      <output></output>`;
+    const range = slider.querySelector("input");
+    range.addEventListener("input", () => onMove(key, Number(range.value)));
+    range.addEventListener("change", () => onSettle?.(key, Number(range.value)));
+    // Stored in radians, read and typed in degrees — nobody thinks in radians
+    const field = typeableReadout(range, slider.querySelector("output"), {
+      toDisplay: (radians) => (radians * 180) / Math.PI,
+      fromDisplay: (degrees) => (degrees * Math.PI) / 180,
+      unit: "\u00b0",
+      decimals: 0,
+    });
+    handles[key] = { range, show: field.show };
+    container.appendChild(slider);
+  }
+  return handles;
+}
+
+/** Chart type and data — the statistics plot's whole control set. */
+export function buildStatsControls(container, spec, { onChart, onData }) {
+  const typeRow = document.createElement("div");
+  typeRow.className = "ntbk-ge-row";
+  typeRow.innerHTML = `
+    <span class="ntbk-ge-y">Chart</span>
+    <select class="ntbk-ge-select">
+      <option value="bar">Bar</option>
+      <option value="line">Line</option>
+      <option value="boxplot">Box plot</option>
+    </select>`;
+  const select = typeRow.querySelector("select");
+  select.value = spec.chartType;
+  select.addEventListener("change", () => onChart(select.value));
+  container.appendChild(typeRow);
+
+  const dataRow = document.createElement("div");
+  dataRow.className = "ntbk-ge-data";
+  dataRow.innerHTML = `
+    <label>Data</label>
+    <textarea spellcheck="false" rows="3">${spec.data.join(", ")}</textarea>`;
+  const area = dataRow.querySelector("textarea");
+  area.addEventListener("keydown", (event) => event.stopPropagation());
+  area.addEventListener("input", () => {
+    const values = parseData(area.value);
+    if (values.length) onData(values);
+  });
+  container.appendChild(dataRow);
+}
+
 export class GraphEditor {
   constructor(app, object) {
     this.app = app;
@@ -225,29 +360,17 @@ export class GraphEditor {
     if (this.spec.kind === "surface3d") return this.renderSurfaceControls();
     if (this.spec.kind === "stats") return this.renderStatsControls();
 
-    this.spec.functions.forEach((item, index) => {
-      const row = document.createElement("div");
-      row.className = "ntbk-ge-row";
-      row.innerHTML = `
-        <span class="ntbk-ge-swatch" style="background:${item.color}"></span>
-        <span class="ntbk-ge-y">y =</span>
-        <input type="text" value="${item.expr.replace(/"/g, "&quot;")}" spellcheck="false">
-        <button class="ntbk-ge-del" title="Remove">✕</button>`;
-
-      const input = row.querySelector("input");
-      input.addEventListener("input", () => {
-        item.expr = input.value;
-        const ok = compileExpression(item.expr) !== null;
-        row.classList.toggle("is-bad", !ok && item.expr.trim() !== "");
+    buildExpressionRows(this.list, this.spec.functions, {
+      onEdit: (index, value, ok) => {
+        this.spec.functions[index].expr = value;
         if (ok) this.rebuild();
-      });
-      row.querySelector(".ntbk-ge-del").addEventListener("click", () => {
+      },
+      onRemove: (index) => {
         this.spec.functions.splice(index, 1);
         this.renderList();
         this.rebuild();
         this.place();
-      });
-      this.list.appendChild(row);
+      },
     });
   }
 
@@ -257,28 +380,19 @@ export class GraphEditor {
     delete this.spec.expr;
     delete this.spec.color;
 
-    this.spec.surfaces.forEach((item, index) => {
-      const row = document.createElement("div");
-      row.className = "ntbk-ge-row";
-      row.innerHTML = `
-        <span class="ntbk-ge-swatch" style="background:${item.color}"></span>
-        <span class="ntbk-ge-y">z =</span>
-        <input type="text" value="${item.expr.replace(/"/g, "&quot;")}" spellcheck="false">
-        <button class="ntbk-ge-del" title="Remove">✕</button>`;
-      const input = row.querySelector("input");
-      input.addEventListener("input", () => {
-        item.expr = input.value;
-        const ok = compileSurface(item.expr) !== null;
-        row.classList.toggle("is-bad", !ok && item.expr.trim() !== "");
+    buildExpressionRows(this.list, this.spec.surfaces, {
+      prefix: "z =",
+      validate: compileSurface,
+      onEdit: (index, value, ok) => {
+        this.spec.surfaces[index].expr = value;
         if (ok) this.rebuild();
-      });
-      row.querySelector(".ntbk-ge-del").addEventListener("click", () => {
+      },
+      onRemove: (index) => {
         this.spec.surfaces.splice(index, 1);
         this.renderList();
         this.rebuild();
         this.place();
-      });
-      this.list.appendChild(row);
+      },
     });
 
     const add = document.createElement("button");
@@ -300,49 +414,21 @@ export class GraphEditor {
     // ── Preset views ──
     const presets = document.createElement("div");
     presets.className = "ntbk-ge-presets";
-    for (const [label, key] of [
-      ["Iso", "isometric"], ["Top", "top"], ["Bottom", "bottom"],
-      ["Front", "front"], ["Side", "side"],
-    ]) {
-      const button = document.createElement("button");
-      button.className = "ntbk-mini";
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        this.spec.view = { ...VIEW_PRESETS[key] };
-        this.applyView();
-        this.syncViewSliders();
-      });
-      presets.appendChild(button);
-    }
+    buildViewPresets(presets, (key) => {
+      this.spec.view = { ...VIEW_PRESETS[key] };
+      this.applyView();
+      this.syncViewSliders();
+    });
     this.list.appendChild(presets);
 
     // ── Turn / Tilt / Roll ──
     // Named for what they show you, not for the axis they turn about
-    this.viewSliders = {};
-    for (const [key, label, min, max, hint] of [
-      ["az", "Turn", 0, Math.PI * 2, "around the sides"],
-      ["el", "Tilt", -Math.PI / 2, Math.PI / 2, "top and bottom"],
-      ["bank", "Roll", -Math.PI, Math.PI, "spin in frame"],
-    ]) {
-      const slider = document.createElement("div");
-      slider.className = "ntbk-ge-slider";
-      slider.innerHTML = `
-        <label title="${hint}">${label}</label>
-        <input type="range" min="${min}" max="${max}" step="0.01"
-               value="${this.spec.view?.[key] ?? 0}">
-        <output></output>`;
-      const range = slider.querySelector("input");
-      const out = slider.querySelector("output");
-      const show = () => { out.textContent = `${Math.round(range.value * 180 / Math.PI)}°`; };
-      show();
-      range.addEventListener("input", () => {
-        this.spec.view = { ...this.spec.view, [key]: Number(range.value) };
-        show();
+    this.viewSliders = buildViewSliders(this.list, this.spec.view, {
+      onMove: (key, value) => {
+        this.spec.view = { ...this.spec.view, [key]: value };
         this.applyView();     // moves the camera without rebuilding the board
-      });
-      this.viewSliders[key] = { range, show };
-      this.list.appendChild(slider);
-    }
+      },
+    });
   }
 
   /** Move the camera on the live board. Cheap — no rebuild. */
@@ -358,34 +444,10 @@ export class GraphEditor {
   }
 
   renderStatsControls() {
-    const typeRow = document.createElement("div");
-    typeRow.className = "ntbk-ge-row";
-    typeRow.innerHTML = `
-      <span class="ntbk-ge-y">Chart</span>
-      <select class="ntbk-ge-select">
-        <option value="bar">Bar</option>
-        <option value="line">Line</option>
-        <option value="boxplot">Box plot</option>
-      </select>`;
-    const select = typeRow.querySelector("select");
-    select.value = this.spec.chartType;
-    select.addEventListener("change", () => {
-      this.spec.chartType = select.value;
-      this.rebuild();
+    buildStatsControls(this.list, this.spec, {
+      onChart: (value) => { this.spec.chartType = value; this.rebuild(); },
+      onData: (values) => { this.spec.data = values; this.rebuild(); },
     });
-    this.list.appendChild(typeRow);
-
-    const dataRow = document.createElement("div");
-    dataRow.className = "ntbk-ge-data";
-    dataRow.innerHTML = `
-      <label>Data</label>
-      <textarea spellcheck="false" rows="3">${this.spec.data.join(", ")}</textarea>`;
-    const area = dataRow.querySelector("textarea");
-    area.addEventListener("input", () => {
-      const values = parseData(area.value);
-      if (values.length) { this.spec.data = values; this.rebuild(); }
-    });
-    this.list.appendChild(dataRow);
   }
 
   addFunction() {

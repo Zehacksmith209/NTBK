@@ -203,7 +203,19 @@ registerObjectType("code", {
     }
 
     // ── Editor ──
+    // What the editor is currently showing. `update(next)` is handed the LIVE
+    // store object, so comparing it against a stored reference compares it
+    // with itself — these two strings are the only honest comparison.
+    let shownFilename = object.payload.filename;
+    let shownSource = object.payload.source ?? "";
+    // True while WE are writing into the editor. Its change listener fires on
+    // our own dispatch, and committing that echo back would put a second,
+    // identical entry on the undo stack for every outside edit.
+    let echoing = false;
+
     function buildEditor(filename, source) {
+      shownFilename = filename;
+      shownSource = source;
       editor?.destroy();
       codePane.innerHTML = "";
       const mode = LANGUAGE_MODES[extensionOf(filename)];
@@ -213,7 +225,9 @@ registerObjectType("code", {
           extensions: [
             basicSetup,
             ...(mode ? [mode()] : []),
-            EditorView.updateListener.of((u) => { if (u.docChanged) scheduleCommit(); }),
+            EditorView.updateListener.of((u) => {
+              if (u.docChanged && !echoing) scheduleCommit();
+            }),
           ],
         }),
         parent: codePane,
@@ -224,9 +238,10 @@ registerObjectType("code", {
     function scheduleCommit() {
       clearTimeout(commitTimer);
       commitTimer = setTimeout(() => {
+        shownSource = editor.state.doc.toString();
         context.updateObjectPayload(current.id, {
           ...current.payload,
-          source: editor.state.doc.toString(),
+          source: shownSource,
           transcript: transcript.slice(-MAX_TRANSCRIPT),
         });
       }, 700);
@@ -408,12 +423,35 @@ registerObjectType("code", {
     resizeWatcher.observe(termPane);
 
     return {
+      /**
+       * Run and stop, for the inspector's Editor tab. Deliberately the SAME
+       * functions the cell's own buttons call, so a run started from the
+       * panel behaves identically and its output lands in the cell's
+       * terminal where you can read it. Still an explicit click every time —
+       * nothing here ever runs on its own.
+       */
+      run() { return run(); },
+      stop() { return stopButton.click(); },
       update(next) {
-        const filenameChanged = next.payload.filename !== current.payload.filename;
-        const wasFilename = current.payload.filename;
         current = next;
-        if (filenameChanged && next.payload.filename !== wasFilename) {
-          buildEditor(next.payload.filename, editor.state.doc.toString());
+        const filename = next.payload.filename;
+        const source = next.payload.source ?? "";
+
+        if (filename !== shownFilename) {
+          // A new extension means a new language mode, so the editor is rebuilt
+          buildEditor(filename, source);
+        } else if (source !== shownSource && editor && !editor.hasFocus) {
+          // Changed from outside the cell — the inspector, or an undo. Never
+          // while you are typing in here, which would fight your caret.
+          echoing = true;
+          try {
+            editor.dispatch({
+              changes: { from: 0, to: editor.state.doc.length, insert: source },
+            });
+          } finally {
+            echoing = false;
+          }
+          shownSource = source;
         }
         apply(next);
       },

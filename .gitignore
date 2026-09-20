@@ -20,3 +20,10 @@ __pycache__/
 
 # Test fixture I generated while building the PDF feature
 frontend/public/test-5page.pdf
+
+# The original PyQt6 prototype. Still on disk, deliberately not in the repo —
+# it lives at the v0.1.0-pyqt tag and the pyqt-prototype branch instead.
+ntbk_app_old_python_prototype.py
+Main_window.py
+Canvas_base.py
+Latex_box.py

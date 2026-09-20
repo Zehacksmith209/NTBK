@@ -8,10 +8,17 @@
   <body>
     <div id="app">
       <div id="ribbon"></div>
-      <div id="canvas-host"></div>
+      <div id="canvas-area">
+        <div id="object-panel"></div>
+        <div id="canvas-host"></div>
+      </div>
       <div id="statusbar">
         <span id="status-tool">Pen</span>
-        <span id="status-page"></span>
+        <span id="status-page">
+          Page <input id="status-page-input" type="text" inputmode="numeric"
+                     size="2" title="Type a page number to go there">
+          <span id="status-page-total"></span>
+        </span>
         <button id="add-page" title="Add a page below the last one">+ Add page</button>
         <span id="status-counts"></span>
         <span id="status-zoom">100%</span>

@@ -93,6 +93,43 @@ export function parseData(text) {
 }
 
 /** Compile an expression to f(x). Returns null if it doesn't parse. */
+/**
+ * Is this an equation rather than a formula for y?
+ *
+ * "9x^2 + 4y^2 = 36" is a relation between x and y — an ellipse, which fails
+ * the vertical line test and so can never be a function of x. Spotting the
+ * "=" is what lets one box accept both. Comparison operators are excluded so
+ * "x >= 2" is not mistaken for one.
+ */
+export function isEquation(expr) {
+  return /[^<>=!]=[^=]/.test(String(expr));
+}
+
+/** F(x, y) for an implicit curve: everything moved to one side of the "=". */
+export function compileImplicit(expr) {
+  try {
+    const parts = String(expr).split("=");
+    if (parts.length !== 2) return null;
+    const left = compile(parts[0]);
+    const right = compile(parts[1]);
+    const f = (x, y) => {
+      const a = left.evaluate({ x, y });
+      const b = right.evaluate({ x, y });
+      if (typeof a !== "number" || typeof b !== "number") return NaN;
+      return a - b;
+    };
+    f(0, 0);      // fail fast on nonsense
+    return f;
+  } catch {
+    return null;
+  }
+}
+
+/** Whichever of the two a 2D entry needs, decided by what was typed. */
+export function compile2d(expr) {
+  return isEquation(expr) ? compileImplicit(expr) : compileExpression(expr);
+}
+
 export function compileExpression(expr) {
   try {
     const code = compile(expr);
@@ -133,14 +170,21 @@ export function buildBoard(container, spec, { interactive = false } = {}) {
   board.suspendUpdate();
   for (const item of spec.functions) {
     if (item.visible === false) continue;
-    const f = compileExpression(item.expr);
-    if (!f) continue;
-    board.create("functiongraph", [f], {
+    const style = {
       strokeColor: item.color,
       strokeWidth: 2,
       highlight: false,
       fixed: true,
-    });
+    };
+    // An equation is a relation, not a function, so it needs the implicit
+    // plotter — that is what draws a whole conic instead of half of one
+    if (isEquation(item.expr)) {
+      const f = compileImplicit(item.expr);
+      if (f) board.create("implicitcurve", [f], style);
+      continue;
+    }
+    const f = compileExpression(item.expr);
+    if (f) board.create("functiongraph", [f], style);
   }
   board.unsuspendUpdate();
   return board;

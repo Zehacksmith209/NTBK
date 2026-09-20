@@ -14,6 +14,52 @@ export const SCHEMA_VERSION = 1;
 // One coordinate space for everything: CSS pixels at 96dpi.
 export const A4_PORTRAIT = { w: 794, h: 1123 };
 
+// ─────────────────────────────────────────────
+//  LAYERS
+//
+//  A layer holds BOTH ink and objects, and the
+//  list order is the stacking order — so a
+//  stroke can sit above an image, or below one,
+//  which a fixed ink/object sandwich could never
+//  express.
+//
+//  Within one layer there are still two bands:
+//  objects that you write ON (a formula, a PDF)
+//  sit under the ink, and objects you work IN
+//  (a code cell) sit over it. That is decided by
+//  type, not by the user.
+// ─────────────────────────────────────────────
+export function createLayer(name) {
+  return { id: newId("ly"), name, visible: true, locked: false };
+}
+
+/**
+ * What a printer physically cannot reach, in millimetres.
+ *
+ * There is no single true figure — it varies by printer — so these are the
+ * tightest values that are safe across common inkjets and lasers, chosen to
+ * leave the student as much usable page as possible. The bottom is much
+ * larger than the rest because that is where the paper feed grips: a
+ * symmetric guide would quietly lie about the one edge that bites.
+ *
+ * At 96dpi a page is 794x1123px, which IS A4, so 1mm = 3.7795px exactly.
+ */
+export const PX_PER_MM = 96 / 25.4;
+export const DEFAULT_PRINT_MARGINS_MM = { top: 4, right: 4, bottom: 10, left: 4 };
+
+export function printMarginsOf(data) {
+  return data?.canvas?.printMargins ?? DEFAULT_PRINT_MARGINS_MM;
+}
+
+export const DEFAULT_LAYER_NAME = "Layer 1";
+
+/** Objects you work in rather than write on, so they sit above the ink. */
+export const OVER_INK_TYPES = new Set(["code"]);
+
+export function bandFor(type) {
+  return OVER_INK_TYPES.has(type) ? "over" : "under";
+}
+
 export function createEmptyDocument() {
   const now = new Date().toISOString();
   return {
@@ -22,6 +68,7 @@ export function createEmptyDocument() {
     meta: { created: now, modified: now, app: "ntbk 0.1.0", title: "Untitled" },
     canvas: {
       mode: "infinite",
+      layers: [createLayer(DEFAULT_LAYER_NAME)],
       background: { type: "grid", spacing: 20, color: "#e9e9ee" },
       pages: [
         { id: "pg_01", index: 0, x: 0, y: 0, w: A4_PORTRAIT.w, h: A4_PORTRAIT.h },
@@ -34,10 +81,14 @@ export function createEmptyDocument() {
   };
 }
 
-export function createStroke({ kind = "pen", points, style, page = "pg_01" }) {
-  return {
+export function createStroke({ kind = "pen", points, style, page = "pg_01",
+                               layerId = null, shape, name, groupId = null }) {
+  const stroke = {
     id: newId("st"),
     kind,
+    layerId,          // null means "the first layer", resolved on render
+    visible: true,
+    locked: false,
     z: 0,
     stride: 3, // x, y, pressure
     points,
@@ -45,6 +96,13 @@ export function createStroke({ kind = "pen", points, style, page = "pg_01" }) {
     erase: [], // subtractive masks, never a destructive edit
     page,
   };
+  // Carried only when they mean something, so a plain pen stroke stays small.
+  // `groupId` is what makes several strokes read as ONE thing: a custom shape
+  // placed from the library is many strokes but one object to you.
+  if (shape) stroke.shape = shape;
+  if (name) stroke.name = name;
+  if (groupId) stroke.groupId = groupId;
+  return stroke;
 }
 
 /** A new page, stacked under the last one with a visible gutter between. */
@@ -62,19 +120,51 @@ export function createPage(pages) {
   };
 }
 
-export function createObject({ type, x, y, w, h, payload, layer = "content" }) {
+export function createObject({ type, x, y, w, h, payload, name = null,
+                               layerId = null }) {
   return {
     id: newId("ob"),
     type,
-    layer,
+    name,             // shown in the panel; auto-filled if left null
+    layerId,
+    band: bandFor(type),
+    visible: true,
+    locked: false,
     z: 0,
     x, y, w, h,
     rotation: 0,
-    locked: false,
     page: "pg_01",
     payload,
     cachedRender: null,
   };
+}
+
+// ─────────────────────────────────────────────
+//  MIGRATION
+//  Documents saved before layers existed have no
+//  layer list and elements with no layerId, so
+//  fill both in on open rather than refusing the
+//  file.
+// ─────────────────────────────────────────────
+export function ensureLayers(data) {
+  const canvas = data.canvas ?? (data.canvas = {});
+  if (!Array.isArray(canvas.layers) || !canvas.layers.length) {
+    canvas.layers = [createLayer(DEFAULT_LAYER_NAME)];
+  }
+  const first = canvas.layers[0].id;
+
+  for (const element of [...(data.strokes ?? []), ...(data.objects ?? [])]) {
+    if (!element.layerId) element.layerId = first;
+    if (element.visible === undefined) element.visible = true;
+    if (element.locked === undefined) element.locked = false;
+    if (element.type && !element.band) element.band = bandFor(element.type);
+    // "layer" used to mean the ink sandwich; it is now the band
+    if (element.layer) {
+      element.band = element.layer === "overlay" ? "over" : "under";
+      delete element.layer;
+    }
+  }
+  return data;
 }
 
 // ─────────────────────────────────────────────
@@ -156,8 +246,13 @@ export class Store {
     this.emit({ type: "pages", ids: [] });
   }
 
+  setLayers(layers) {
+    this.data.canvas.layers = layers;
+    this.emit({ type: "layers", ids: [] });
+  }
+
   replaceDocument(data) {
-    this.data = data;
+    this.data = ensureLayers(data);
     this.emit({ type: "reload", ids: [] });
   }
 

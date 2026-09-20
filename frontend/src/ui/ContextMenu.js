@@ -6,6 +6,8 @@
 //  delete. Everything here goes through the
 //  history, so every item is undoable.
 // ─────────────────────────────────────────────
+import { typeableReadout } from "./NumberField.js";
+
 const SWATCHES = [
   "#111111", "#1a6ef5", "#c62828", "#2e7d32",
   "#f57c00", "#6a1b9a", "#00838f", "#777777",
@@ -114,7 +116,6 @@ export function openContextMenu(app, clientX, clientY) {
     output.textContent = current;
     // Live while dragging, one history entry when you let go
     slider.addEventListener("input", () => {
-      output.textContent = slider.value;
       app.previewStyle({ size: Number(slider.value) });
     });
     slider.addEventListener("change", () => {
@@ -122,11 +123,35 @@ export function openContextMenu(app, clientX, clientY) {
     });
     thickness.appendChild(slider);
     thickness.appendChild(output);
+    typeableReadout(slider, output, { decimals: 1 });
   } else {
     const note = document.createElement("span");
     note.className = "ntbk-context-note";
     note.textContent = "ink only";
     thickness.appendChild(note);
+  }
+
+  // ── Layer ──
+  const layers = app.store.data.canvas.layers ?? [];
+  if (layers.length > 1) {
+    const layerRow = row("Layer");
+    const select = document.createElement("select");
+    select.className = "ntbk-context-select";
+    for (const layer of layers) {
+      const option = document.createElement("option");
+      option.value = layer.id;
+      option.textContent = layer.name;
+      select.appendChild(option);
+    }
+    // Where the selection sits now — blank when it straddles two layers, so
+    // the box never claims a layer the selection isn't wholly on
+    const on = new Set([...app.selection].map((id) => app.store.find(id)?.layerId));
+    select.value = on.size === 1 ? [...on][0] : "";
+    select.addEventListener("change", () => {
+      app.moveSelectionToLayer(select.value);
+      closeContextMenu();
+    });
+    layerRow.appendChild(select);
   }
 
   const last = row("");

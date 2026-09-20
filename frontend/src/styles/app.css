@@ -38,6 +38,11 @@ html, body {
   height: 100vh;
 }
 
+/* The panel shares the row with the canvas, so opening it shrinks the canvas
+   rather than covering it — the canvas measures its own host, so it adapts. */
+#canvas-area { display: flex; min-height: 0; overflow: hidden; }
+#canvas-host { flex: 1; min-width: 0; }
+
 /* ── Ribbon ────────────────────────────────── */
 .ntbk-ribbon {
   background: var(--panel);
@@ -793,6 +798,243 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 }
 .ntbk-context-danger .ntbk-context-btn:hover { background: #fdf3f2; border-color: #c0392b; }
 
+/* ── Object panel ──────────────────────────── */
+.ntbk-panel {
+  display: flex;
+  flex: none;
+  width: 264px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  transition: width 120ms ease;
+}
+.ntbk-panel.is-collapsed { width: 30px; }
+.ntbk-panel.is-collapsed .ntbk-panel-body { display: none; }
+
+.ntbk-panel-toggle {
+  flex: none; width: 29px;
+  border: none; border-right: 1px solid var(--line-soft);
+  background: #e6e9ee; color: var(--text-dim); cursor: pointer; padding: 6px 0;
+  align-self: stretch;
+}
+.ntbk-panel-toggle:hover { background: #dde1e7; color: var(--text); }
+.ntbk-panel-toggle svg { width: 15px; height: 15px; }
+
+.ntbk-panel-body {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+}
+.ntbk-panel-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-panel-head strong { flex: 1; font-size: 11px; }
+.ntbk-panel-sort {
+  font: inherit; font-size: 10px; padding: 1px 3px;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+}
+/* ── Inspector: right-click a tree row ── */
+/* The printer's unreachable margin, shown so nothing important is drawn
+   where it will be cut off. A guide, never content. */
+.ntbk-page-margins {
+  position: absolute; pointer-events: none;
+  border: 1px dashed var(--line);
+  opacity: .55;
+}
+@media print { .ntbk-page-margins { display: none; } }
+
+.ntbk-inspector {
+  position: fixed; z-index: 120; width: 264px;
+  background: #fff; border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, .18);
+  font-size: 11px; overflow: hidden;
+}
+.ntbk-insp-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-insp-head strong {
+  flex: 1; min-width: 0; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-insp-close {
+  border: 0; background: none; padding: 2px; cursor: pointer;
+  color: var(--text-dim); display: flex;
+}
+.ntbk-insp-close svg { width: 13px; height: 13px; }
+.ntbk-insp-close:hover { color: var(--text); }
+
+.ntbk-insp-tabs { display: flex; border-bottom: 1px solid var(--line-soft); }
+.ntbk-insp-tab {
+  flex: 1; padding: 5px 4px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 10px; color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+}
+.ntbk-insp-tab:hover { background: var(--hover); }
+.ntbk-insp-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* The editor tab gets long — plots especially — so the body scrolls and the
+   panel never grows past the window. */
+.ntbk-insp-body {
+  padding: 4px 0; overflow-y: auto; overscroll-behavior: contain;
+  max-height: min(58vh, 430px);
+}
+.ntbk-insp-rows { padding: 2px 9px 0; }
+.ntbk-insp-rows .ntbk-ge-row { margin-bottom: 4px; }
+.ntbk-insp-foot { display: flex; gap: 5px; padding: 2px 9px 6px; }
+.ntbk-insp-foot .ntbk-mini { flex: 1; }
+.ntbk-insp-preview {
+  margin: 4px 9px 2px; padding: 8px 6px; min-height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-sunken, #f6f6f7); border-radius: 4px;
+  overflow-x: auto; font-size: 12px;
+}
+.ntbk-insp-preview.is-bad {
+  color: #c62828; font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px; justify-content: flex-start; white-space: pre-wrap;
+}
+.ntbk-insp-body .ntbk-ge-slider { padding: 2px 9px; }
+.ntbk-insp-body .ntbk-ge-data { padding: 2px 0 6px; }
+.ntbk-insp-body .ntbk-ge-data textarea { width: 100%; box-sizing: border-box; }
+.ntbk-insp-presets {
+  margin-left: auto; display: flex; gap: 3px; flex-wrap: wrap;
+  justify-content: flex-end; max-width: 160px;
+}
+.ntbk-insp-field {
+  display: flex; align-items: center; gap: 8px; padding: 3px 9px;
+}
+.ntbk-insp-field span { color: var(--text-dim); white-space: nowrap; }
+.ntbk-insp-field strong {
+  margin-left: auto; font-weight: 500; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-insp-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 1px solid var(--line); flex: none;
+}
+.ntbk-insp-select {
+  margin-left: auto; max-width: 118px; font: inherit; font-size: 11px;
+  padding: 1px 3px; border: 1px solid var(--line-soft);
+  border-radius: 3px; background: #fff;
+}
+.ntbk-insp-input {
+  margin-left: auto; width: 108px; font: inherit; font-size: 11px;
+  padding: 1px 4px; border: 1px solid var(--line-soft);
+  border-radius: 3px; background: #fff; text-align: right;
+}
+.ntbk-insp-input:focus { border-color: var(--accent); outline: none; text-align: left; }
+.ntbk-insp-area {
+  display: block; width: 100%; margin-top: 3px; box-sizing: border-box;
+  min-height: 62px; max-height: 150px; resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
+  padding: 4px 5px; border: 1px solid var(--line-soft);
+  border-radius: 4px; background: #fff;
+}
+.ntbk-insp-area:focus { border-color: var(--accent); outline: none; }
+.ntbk-insp-swatches {
+  margin-left: auto; display: flex; gap: 3px; flex-wrap: wrap;
+  justify-content: flex-end; max-width: 130px;
+}
+.ntbk-insp-dot.is-button { cursor: pointer; padding: 0; }
+.ntbk-insp-dot.is-current { box-shadow: 0 0 0 2px var(--accent); }
+.ntbk-insp-button {
+  display: block; width: calc(100% - 18px); margin: 6px 9px;
+  padding: 4px 6px; font: inherit; font-size: 10px; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: 4px; background: #fff;
+}
+.ntbk-insp-button:hover { background: var(--hover); }
+.ntbk-insp-block { padding: 4px 9px; }
+.ntbk-insp-block span { color: var(--text-dim); }
+.ntbk-insp-block pre {
+  margin: 3px 0 0; padding: 5px 6px; max-height: 110px; overflow: auto;
+  background: var(--surface-sunken, #f6f6f7); border-radius: 4px;
+  font-size: 10px; white-space: pre-wrap; word-break: break-word;
+}
+.ntbk-insp-note {
+  margin: 4px 9px 6px; color: var(--text-dim); font-size: 10px; line-height: 1.35;
+}
+
+/* Points from the edge of the viewport toward something that is off screen,
+   with the page number it sits on. */
+.ntbk-locator {
+  position: absolute; z-index: 60; pointer-events: none;
+  width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: #fff;
+  background: var(--accent); border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  animation: ntbk-locator-in .18s ease-out;
+}
+.ntbk-locator::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0; margin: -5px 0 0 0;
+  border: 5px solid transparent; border-left-color: var(--accent);
+  transform: rotate(var(--angle)) translateX(11px);
+  transform-origin: 0 5px;
+}
+@keyframes ntbk-locator-in {
+  from { transform: scale(.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+.ntbk-context-select {
+  flex: 1; min-width: 0; font: inherit; font-size: 11px; padding: 2px 4px;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+}
+.ntbk-panel-filter {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-panel-filter svg { width: 12px; height: 12px; color: var(--text-dim); }
+.ntbk-panel-filter input {
+  flex: 1; min-width: 0; padding: 2px 6px; font: inherit; font-size: 11px;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+}
+.ntbk-panel-tree { flex: 1; overflow-y: auto; padding: 4px 0; }
+.ntbk-panel-empty { padding: 14px 10px; font-size: 10px; color: var(--text-dim); }
+
+.ntbk-tree-group {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px 3px; font-size: 10px; font-weight: 600; color: var(--text-dim);
+}
+.ntbk-tree-count { margin-left: auto; opacity: .7; }
+
+.ntbk-tree-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px 3px 14px; cursor: default; font-size: 11px;
+}
+.ntbk-tree-row:hover { background: #e3e7ed; }
+.ntbk-tree-row.is-selected { background: var(--accent-soft); }
+.ntbk-tree-row.is-dim { opacity: .5; }
+.ntbk-tree-icon { width: 13px; height: 13px; flex: none; color: var(--text-dim); }
+.ntbk-tree-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-tree-name[contenteditable="true"] {
+  background: #fff; outline: 1px solid var(--accent); border-radius: 2px;
+  padding: 0 2px; text-overflow: clip;
+}
+.ntbk-tree-btn {
+  flex: none; border: none; background: transparent; padding: 1px 2px;
+  cursor: pointer; color: var(--text-dim); opacity: .55;
+}
+.ntbk-tree-row:hover .ntbk-tree-btn { opacity: 1; }
+.ntbk-tree-btn:hover { color: var(--accent); }
+.ntbk-tree-btn svg { width: 12px; height: 12px; }
+
+.ntbk-panel-layers { border-top: 1px solid var(--line); max-height: 190px; display: flex; flex-direction: column; }
+.ntbk-layer-list { overflow-y: auto; padding: 3px 0; }
+.ntbk-layer-row { padding-left: 8px; }
+
+/* Hovering a row in the tree outlines the thing itself */
+.is-peeked { outline: 2px solid var(--accent); outline-offset: 2px; }
+path.is-peeked { outline: none; filter: drop-shadow(0 0 3px var(--accent)); }
+
+.ntbk-panel-tree::-webkit-scrollbar,
+.ntbk-layer-list::-webkit-scrollbar { width: 10px; }
+.ntbk-panel-tree::-webkit-scrollbar-thumb,
+.ntbk-layer-list::-webkit-scrollbar-thumb {
+  background: #b4bac4; border-radius: 6px; border: 2px solid var(--panel);
+}
+
 /* ── Status bar ────────────────────────────── */
 #statusbar {
   display: flex;
@@ -810,3 +1052,124 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 
 /* Pickr sits inside a popover that is already positioned */
 .ntbk-pickr .pcr-button { height: 20px; width: 34px; }
+
+
+/* ── Ruler: an instrument laid on the page ── */
+.ntbk-ruler {
+  position: absolute; z-index: 45; transform-origin: 50% 0;
+  pointer-events: none;
+}
+.ntbk-ruler-body {
+  position: relative; height: 74px; pointer-events: auto;
+  background: rgba(255, 247, 214, .86);
+  border: 1px solid rgba(140, 120, 60, .5);
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+  cursor: grab;
+}
+.ntbk-ruler-body:active { cursor: grabbing; }
+.ntbk-ruler-ticks { position: absolute; inset: 0; overflow: hidden; }
+.ntbk-ruler-tick {
+  position: absolute; width: 1px; height: 7px;
+  background: rgba(60, 50, 20, .55);
+}
+.ntbk-ruler-tick.is-bottom { bottom: 0; }
+.ntbk-ruler-tick.is-top { top: 0; }
+.ntbk-ruler-tick.is-half { height: 11px; }
+.ntbk-ruler-tick.is-cm { height: 17px; background: rgba(40, 32, 10, .85); }
+.ntbk-ruler-tick.is-cm span {
+  position: absolute; left: 2px;
+  font-size: 9px; color: rgba(40, 32, 10, .9);
+}
+.ntbk-ruler-tick.is-bottom.is-cm span { bottom: 18px; }
+.ntbk-ruler-tick.is-top.is-cm span { top: 18px; }
+.ntbk-ruler-grip { position: absolute; inset: 0; }
+.ntbk-ruler-rotate {
+  position: absolute; right: -9px; top: 50%; margin-top: -9px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #fff; cursor: alias;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.ntbk-ruler-protractor {
+  position: absolute; left: 50%; top: 2px; width: 70px; height: 70px;
+  margin-left: -35px; pointer-events: none;
+}
+.ntbk-ruler-dial { width: 100%; height: 100%; overflow: visible; }
+.ntbk-ruler-dial line { stroke: rgba(60, 50, 20, .5); stroke-width: 1; }
+.ntbk-ruler-dial line.is-major { stroke: rgba(40, 32, 10, .9); stroke-width: 1.4; }
+.ntbk-ruler-dial text {
+  font-size: 7px; fill: rgba(40, 32, 10, .85); text-anchor: middle;
+}
+.ntbk-ruler-readout {
+  position: absolute; left: 50%; top: 50%; transform-origin: 50% 50%;
+  margin: -9px 0 0 -20px; width: 40px; text-align: center;
+  font-size: 11px; font-weight: 600; color: #3a3010;
+}
+
+/* ── Text box ── */
+.ntbk-text { --text-size: 16px; --text-color: #111111; }
+.ntbk-text-body { width: 100%; height: 100%; overflow: auto; }
+.ntbk-text .ntbk-text-editor {
+  min-height: 100%; padding: 6px 8px; outline: none;
+  font-size: var(--text-size); color: var(--text-color); line-height: 1.45;
+}
+.ntbk-text .ntbk-text-editor p { margin: 0 0 .35em; }
+.ntbk-text .ntbk-text-editor p:last-child { margin-bottom: 0; }
+.ntbk-text .ntbk-text-editor .katex { font-size: 1em; }
+.ntbk-object[data-type="text"] {
+  background: transparent; border: 1px dashed transparent;
+}
+/* Not editing: clicks belong to the canvas so the box can be picked up */
+.ntbk-object[data-type="text"]:not(.is-editing) .ntbk-text-body { cursor: default; }
+.ntbk-object[data-type="text"].is-editing {
+  border-color: var(--accent); background: rgba(255, 255, 255, .9);
+}
+.ntbk-object[data-type="text"]:hover { border-color: var(--line-soft); }
+.ntbk-object[data-type="text"].is-selected { border-color: var(--accent); }
+
+/* A number field, for the values where dragging is pointless */
+.ntbk-number {
+  width: 62px; font: inherit; font-size: 11px; padding: 1px 4px;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  text-align: right;
+}
+.ntbk-number:focus { border-color: var(--accent); outline: none; }
+.ntbk-popover-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ntbk-popover-row label { font-size: 11px; color: var(--text-dim); flex: 1; }
+.ntbk-popover-unit { font-size: 10px; color: var(--text-dim); }
+
+
+/* Search across your saved shapes, once there are enough to be worth it */
+.ntbk-shape-search { margin: 4px 0 5px; }
+.ntbk-shape-search input {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 11px;
+  padding: 3px 6px; border: 1px solid var(--line-soft);
+  border-radius: 4px; background: #fff;
+}
+.ntbk-shape-search input:focus { border-color: var(--accent); outline: none; }
+/* A long library scrolls rather than pushing the menu off the screen.
+   Roughly five rows — enough to browse, never enough to swallow the panel. */
+.ntbk-shape-list {
+  max-height: 148px; overflow-y: auto; overscroll-behavior: contain;
+  align-content: flex-start;
+}
+/* A visible, slim scrollbar, so it is obvious there is more below */
+.ntbk-shape-list::-webkit-scrollbar { width: 8px; }
+.ntbk-shape-list::-webkit-scrollbar-thumb {
+  background: var(--line); border-radius: 4px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.ntbk-shape-list::-webkit-scrollbar-thumb:hover { background-color: var(--text-dim); }
+
+
+/* A slider's readout, typeable. Drag for feel, type for precision. */
+.ntbk-readout {
+  width: 52px; flex: none; font: inherit; font-size: 11px;
+  padding: 1px 4px; text-align: right;
+  border: 1px solid transparent; border-radius: 3px; background: transparent;
+  color: inherit; cursor: text;
+}
+.ntbk-readout:hover { border-color: var(--line-soft); background: #fff; }
+.ntbk-readout:focus {
+  border-color: var(--accent); background: #fff; outline: none; text-align: left;
+}

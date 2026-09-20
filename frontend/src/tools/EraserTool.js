@@ -180,7 +180,8 @@ export class EraserTool {
       const stroke = this.app.store.find(id);
       // Only ink erases. A LaTeX box shouldn't be destroyed by a swipe
       // across it — delete those with the selection tools.
-      if (stroke?.kind && strokeHit(stroke, point.x, point.y, reach)) {
+      if (stroke?.kind && this.app.isInteractive(stroke)
+          && strokeHit(stroke, point.x, point.y, reach)) {
         hits.push(stroke);
       }
     }
@@ -270,6 +271,7 @@ export class EraserTool {
           page: original.page,
         });
         piece.z = original.z;
+        piece.layerId = original.layerId;   // pieces stay where the stroke was
         // Earlier masks stay only where they still overlap this piece; the
         // rings from THIS swipe are already baked into the split
         piece.erase = originalErase.filter((ring) => {
