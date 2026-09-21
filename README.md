@@ -45,8 +45,7 @@ typesets the moment you close the `$`. Both are part of the canvas — you can
 draw over them like anything else on the page.
 
 **Plot.** 2D functions, 3D surfaces and statistics charts through JSXGraph.
-Type an equation containing `=` and you get an implicit curve, so
-`9x^2+4y^2=36` draws the whole ellipse rather than half of it.
+Type an equation containing `=` and you both implicit and explicit curves.
 
 **Run code.** Code cells with a real terminal. The filename picks the language —
 rename `a.py` to `a.cpp` and it compiles C++ instead. It uses the compilers and
@@ -61,7 +60,7 @@ what each thing is, where it lives and how to edit it.
 ruler blocks the pen underneath it — like a real one.
 
 **Export.** Every A4 page to PDF, or straight to a printer. Content off the page
-is never included.
+is never included. A bit glitchy right now but will fix in later updates
 
 ---
 
