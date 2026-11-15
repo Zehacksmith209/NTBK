@@ -154,6 +154,110 @@ export const bridge = {
     }
   },
 
+  /** The folder the library is currently read from. */
+  async shapeFolder() {
+    if (!api()) return "";
+    try { return await api().shape_library(); } catch { return ""; }
+  },
+
+  /** Native folder picker. Returns { ok, folder } or { ok: false, cancelled }. */
+  async chooseShapeFolder() {
+    if (!api()) return { ok: false, error: "Needs the desktop app" };
+    try { return JSON.parse(await api().choose_shape_library()); }
+    catch (error) { return { ok: false, error: String(error) }; }
+  },
+
+  async resetShapeFolder() {
+    if (!api()) return { ok: false };
+    try { return JSON.parse(await api().reset_shape_library()); }
+    catch (error) { return { ok: false, error: String(error) }; }
+  },
+
+  /** "light" or "dark", remembered in ~/.ntbk.json. */
+  async getTheme() {
+    if (!api()) return localStorage.getItem("ntbk-theme") || "light";
+    try { return await api().get_theme(); } catch { return "light"; }
+  },
+
+  async setTheme(theme) {
+    // Mirrored to localStorage so the next launch can paint the right colours
+    // before the Python bridge has finished answering — otherwise dark mode
+    // starts every session with a flash of white.
+    try { localStorage.setItem("ntbk-theme", theme); } catch { /* private mode */ }
+    if (!api()) return { ok: true, theme };
+    try { return JSON.parse(await api().set_theme(theme)); }
+    catch (error) { return { ok: false, error: String(error) }; }
+  },
+
+  /** { active:{x,y}, saved:{x,y} } — stylus coordinate correction. */
+  async pointerOffset() {
+    if (!api()) return { active: { x: 0, y: 0 }, saved: { x: 0, y: 0 } };
+    try { return JSON.parse(await api().get_pointer_offset()); }
+    catch { return { active: { x: 0, y: 0 }, saved: { x: 0, y: 0 } }; }
+  },
+
+  async setPointerOffset(x, y, remember = true) {
+    if (!api()) return { active: { x, y }, saved: { x, y } };
+    try { return JSON.parse(await api().set_pointer_offset(x, y, remember)); }
+    catch { return { active: { x, y }, saved: { x, y } }; }
+  },
+
+  /**
+   * The formula library, as the JSON text it is stored as.
+   *
+   * Empty string means "no library yet", which is different from an empty
+   * one. In a plain browser there is no Python, so the same text is kept in
+   * localStorage and the feature can still be worked on with `npm run dev`.
+   */
+  async getFormulas() {
+    if (!api()) {
+      try { return localStorage.getItem("ntbk-formulas") ?? ""; } catch { return ""; }
+    }
+    try { return (await api().get_formulas()) ?? ""; } catch { return ""; }
+  },
+
+  async saveFormulas(text) {
+    if (!api()) {
+      try { localStorage.setItem("ntbk-formulas", text); return { ok: true }; }
+      catch (error) { return { ok: false, error: String(error) }; }
+    }
+    try { return JSON.parse(await api().save_formulas(text)); }
+    catch (error) { return { ok: false, error: String(error) }; }
+  },
+
+  /** Hand a web address to the system browser. */
+  async openUrl(url) {
+    if (!api()) { window.open(url, "_blank", "noopener"); return true; }
+    try { return await api().open_url(url); } catch { return false; }
+  },
+
+  // ── Companion mode ────────────────────────
+  async companionStart() {
+    if (!api()) return { running: false };
+    try { return JSON.parse(await api().companion_start()); }
+    catch (error) { return { running: false, error: String(error) }; }
+  },
+
+  async companionStop() {
+    if (!api()) return { running: false };
+    try { return JSON.parse(await api().companion_stop()); } catch { return { running: false }; }
+  },
+
+  async companionStatus() {
+    if (!api()) return { running: false };
+    try { return JSON.parse(await api().companion_status()); } catch { return { running: false }; }
+  },
+
+  async companionSetDocument(json) {
+    if (!api()) return false;
+    try { return await api().companion_set_document(json); } catch { return false; }
+  },
+
+  async companionBroadcast(message) {
+    if (!api()) return false;
+    try { return await api().companion_broadcast(JSON.stringify(message)); } catch { return false; }
+  },
+
   async deleteShape(name) {
     if (!api()) return { ok: false };
     return JSON.parse(await api().delete_shape(name));

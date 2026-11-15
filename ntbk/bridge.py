@@ -26,6 +26,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 #  A .ntbk is a zip: document.json plus an
 #  assets/ folder holding the media verbatim.
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  SETTINGS
+#
+#  One small file for the handful of choices
+#  that have to outlive a run. Deliberately not
+#  in the shape library itself — that is the very
+#  thing the student can move.
+# ─────────────────────────────────────────────
+CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".ntbk.json")
+
+
+def default_shape_library():
+    return os.path.join(os.path.expanduser("~"), "Documents", "ntbk", "shapes")
+
+
+def formulas_path():
+    return os.path.join(os.path.dirname(default_shape_library()), "formulas.json")
+
+
+def read_config():
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}      # missing or corrupt settings must never block startup
+
+
+def write_config(data):
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=1)
+        return True
+    except OSError:
+        return False
+
+
 class Api:
     def __init__(self):
         self.current_path = None
@@ -38,6 +75,7 @@ class Api:
         self._pdfs = {}          # asset id -> open PDF, so bytes cross once
         self._scratch = None     # working dir used until the notebook is saved
         self._terminals = None   # one pty per code cell, created on demand
+        self._companion = None   # LAN server, only while companion mode is on
 
     # ── Documents ──────────────────────────────
     def attach(self, window, spawn):
@@ -222,10 +260,209 @@ class Api:
         the scratch directory it used to fall back to is wiped by the OS — so
         shapes made before the first save silently vanished on restart. This
         is a real, visible folder so they survive and can still be dragged.
+
+        The student can point this somewhere else — a Dropbox folder, a USB
+        stick, a shared class folder. If that location is gone when the app
+        next starts (drive unplugged, folder deleted) we fall back to the
+        default rather than failing, so the library is never unreachable.
         """
-        folder = os.path.join(os.path.expanduser("~"), "Documents", "ntbk", "shapes")
+        chosen = read_config().get("shape_library")
+        if chosen and os.path.isdir(chosen):
+            return chosen
+        folder = default_shape_library()
         os.makedirs(folder, exist_ok=True)
         return folder
+
+    def choose_shape_library(self):
+        """Ask for a folder and read shapes from there from now on."""
+        window = self._window()
+        try:
+            result = window.create_file_dialog(
+                webview.FOLDER_DIALOG, directory=self.shape_library())
+        except Exception as error:
+            return json.dumps({"ok": False, "error": str(error)})
+        if not result:
+            return json.dumps({"ok": False, "cancelled": True})
+
+        # macOS hands back an NSString subclass, which is not `str` as far as
+        # an `is str` check is concerned — the same trap that silently broke
+        # PDF saving. Normalise it once, here.
+        path = str(result if isinstance(result, (str, os.PathLike)) else result[0])
+        if not os.path.isdir(path):
+            return json.dumps({"ok": False, "error": "That is not a folder"})
+
+        config = read_config()
+        config["shape_library"] = path
+        if not write_config(config):
+            return json.dumps({"ok": False, "error": "Could not save that choice"})
+        return json.dumps({"ok": True, "folder": path})
+
+    # ── Companion mode ────────────────────────
+    #
+    #  Off by default, started only by an explicit menu action, and gated by
+    #  a six-digit code shown on this machine. Nothing here is reachable by
+    #  accident.
+    def companion_start(self):
+        try:
+            from services.companion import Companion
+            if self._companion is None:
+                # HERE lives in app.py, not here. Derive it from this file.
+                # Same two worlds as app.py: inside a .app the source tree
+                # does not exist and the files live where PyInstaller put them.
+                base = getattr(sys, "_MEIPASS", None)
+                dist = (os.path.join(base, "frontend", "dist") if base
+                        else os.path.normpath(os.path.join(
+                            os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")))
+                if not os.path.isdir(dist):
+                    return json.dumps({"running": False,
+                                       "error": f"frontend/dist not found at {dist} — run npm run build"})
+                self._companion = Companion(dist, on_command=self._companion_command)
+            return json.dumps(self._companion.start())
+        except Exception as error:
+            # Reported, never swallowed. A student who cannot see why this
+            # failed has no way to fix it, and "could not start" is not a
+            # reason — it is the absence of one.
+            traceback.print_exc()
+            return json.dumps({"running": False,
+                               "error": f"{type(error).__name__}: {error}"})
+
+    def companion_stop(self):
+        if self._companion:
+            self._companion.stop()
+        return json.dumps({"ok": True, "running": False})
+
+    def companion_status(self):
+        if not self._companion:
+            return json.dumps({"running": False})
+        return json.dumps(self._companion.info())
+
+    def companion_set_document(self, document_json):
+        """The laptop pushes a snapshot for new clients to pull.
+
+        Opaque on this side, exactly as save_ntbk has always treated it.
+        """
+        if self._companion:
+            self._companion.set_document(document_json)
+        return True
+
+    def companion_broadcast(self, message_json):
+        """Laptop -> every paired device."""
+        if self._companion:
+            self._companion.broadcast(json.loads(message_json))
+        return True
+
+    def companion_allow_code(self, allow):
+        """Whether a paired device may run code cells.
+
+        Its own decision, never an implied consequence of pairing: a token
+        that can run code is a token that can run anything on this machine.
+        """
+        if self._companion:
+            self._companion.allow_code_execution = bool(allow)
+        return json.dumps(self._companion.info() if self._companion else {})
+
+    def _companion_command(self, command):
+        """A command arrived from a paired device.
+
+        Pushed into the laptop's own frontend, which is the authority — it
+        applies the command and re-broadcasts, exactly as if the edit had
+        been made here.
+        """
+        window = self._window()
+        if not window:
+            return
+        try:
+            window.evaluate_js(
+                f"window.ntbkCompanion && window.ntbkCompanion.receive({json.dumps(command)})")
+        except Exception:
+            traceback.print_exc()
+
+    # ── Formula library ───────────────────────
+    #
+    #  One file beside the shape library, so the student's formulas follow
+    #  them from notebook to notebook. Opaque here: the frontend owns the
+    #  shape of the data, and this side only keeps it safe on disk.
+    def get_formulas(self):
+        try:
+            with open(formulas_path(), "r", encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return ""           # no library yet, which is not an empty one
+
+    def save_formulas(self, text):
+        try:
+            json.loads(text)    # never replace a good file with a broken one
+            path = formulas_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            # Written beside the real file and swapped in, so a crash halfway
+            # through cannot leave the library truncated.
+            partial = path + ".part"
+            with open(partial, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(partial, path)
+            return json.dumps({"ok": True, "path": path})
+        except (OSError, ValueError) as error:
+            return json.dumps({"ok": False, "error": f"{type(error).__name__}: {error}"})
+
+    def open_url(self, url):
+        """Open a web address in the system browser.
+
+        Only http and https. This is reachable from page script, and anything
+        else handed to the desktop's opener — a file path, a custom scheme —
+        would be asking the operating system to run it.
+        """
+        import webbrowser
+        url = str(url).strip()
+        if not re.match(r"^https?://", url, re.IGNORECASE):
+            return False
+        try:
+            return bool(webbrowser.open(url))
+        except Exception:
+            return False
+
+    def get_pointer_offset(self):
+        """How far to shift incoming stylus coordinates.
+
+        Zero means "trust the OS", which is right everywhere except on a
+        display stack that is lying about where the pen is.
+        """
+        config = read_config()
+        active = config.get("pointerOffset") or {"x": 0, "y": 0}
+        saved = config.get("pointerOffsetSaved") or {"x": 0, "y": 0}
+        return json.dumps({"active": active, "saved": saved})
+
+    def set_pointer_offset(self, x, y, remember=True):
+        config = read_config()
+        offset = {"x": float(x), "y": float(y)}
+        config["pointerOffset"] = offset
+        # A non-zero setting is also kept as the "reinforced" preset, so
+        # flipping back to System Original does not throw away the numbers
+        # the student worked out by hand.
+        if remember and (offset["x"] or offset["y"]):
+            config["pointerOffsetSaved"] = offset
+        write_config(config)
+        return json.dumps({"active": offset,
+                           "saved": config.get("pointerOffsetSaved") or {"x": 0, "y": 0}})
+
+    def get_theme(self):
+        """"light" or "dark" — remembered between runs."""
+        value = read_config().get("theme")
+        return value if value in ("light", "dark") else "light"
+
+    def set_theme(self, theme):
+        if theme not in ("light", "dark"):
+            return json.dumps({"ok": False, "error": "unknown theme"})
+        config = read_config()
+        config["theme"] = theme
+        write_config(config)
+        return json.dumps({"ok": True, "theme": theme})
+
+    def reset_shape_library(self):
+        """Go back to the default folder."""
+        config = read_config()
+        config.pop("shape_library", None)
+        write_config(config)
+        return json.dumps({"ok": True, "folder": self.shape_library()})
 
     def shape_folders(self):
         """Where shapes are read from: beside this notebook, then the library."""
@@ -237,8 +474,20 @@ class Api:
         return folders
 
     def save_shape(self, name, shape_json):
-        """Beside the notebook once it has one, otherwise in the library."""
-        folder = self.shape_folders()[0]
+        """Always into the personal library.
+
+        It used to save beside the notebook whenever there was one, which
+        meant where a shape landed depended on which file happened to be open
+        when you pressed save — so a shape saved while working on one topic
+        was simply absent from the next, with nothing to explain why. A shape
+        library is a property of the person, not of a document.
+
+        Reading still merges the notebook's own `shapes/` folder on top of
+        this one (see list_shapes), so anything already sitting beside a
+        notebook keeps working and can still override a library shape of the
+        same name.
+        """
+        folder = self.shape_library()
         os.makedirs(folder, exist_ok=True)
         safe = re.sub(r"[^A-Za-z0-9 _-]", "", str(name)).strip() or "shape"
         path = os.path.join(folder, f"{safe}.ntbkshape")

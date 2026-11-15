@@ -99,7 +99,70 @@ Known limitation. The terminal uses a POSIX pty (`pty`, `termios`, `fcntl`),
 which does not exist on Windows. Everything else works — ink, maths, plots,
 text, layers, the ruler, PDF export.
 
-Supporting it needs a ConPTY backend (`pywinpty`). Not built yet.
+Supporting it needs a ConPTY backend (`pywinpty`). Not built yet. Until then,
+run under WSL — see [INSTALL.md](INSTALL.md#windows-with-wsl).
+
+**Git Bash does not help.** It is a bash shell running on Windows, so Python
+started from it is still Windows Python with no `pty` module. Having bash is
+not the same as having POSIX. `uname -a` tells you which you are in:
+`MINGW64_NT-…` is Git Bash, `Linux … microsoft-standard-WSL2` is WSL.
+
+---
+
+## WSL: the window opens but never paints ("not responding")
+
+WebKitGTK renders through DMABUF buffers that WSLg's compositor does not
+provide properly. The web process wedges, so the window appears and never
+draws. Turn that renderer off:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./venv/bin/python ./ntbk/app.py
+```
+
+If it still hangs:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 ./venv/bin/python ./ntbk/app.py
+```
+
+To check whether the problem is WSLg itself rather than this app, `xeyes`
+(`sudo apt install x11-apps`) should open a window. If it does not, no Linux
+GUI will work and WSLg is what needs fixing.
+
+---
+
+## WSL: the terminal in a code cell is blank and swallows what I type
+
+The cell mounts a terminal before it knows whether the shell started, so a
+failure to launch looks like a working terminal that ignores you.
+
+The usual cause is `$SHELL` being unset. The app falls back to `/bin/zsh`,
+which macOS has and Ubuntu does not, so the shell never starts. This happens
+when the app is launched from PowerShell via `wsl …`, or from a shortcut —
+neither runs a login shell.
+
+Check it where you launch the app from:
+
+```bash
+echo "SHELL=[$SHELL]"; which bash zsh
+```
+
+If `SHELL=[]` is empty, set it:
+
+```bash
+export SHELL=/bin/bash
+```
+
+Add it to `~/.bashrc` to make it stick. Better still, **launch the app from
+inside an Ubuntu terminal** rather than from PowerShell — a real bash prompt
+always sets `$SHELL`, so the bad default never applies.
+
+If `$SHELL` was already set and the terminal is still blank, check the pty
+modules are actually there — if this fails you are on Windows Python, not WSL:
+
+```bash
+./venv/bin/python -c "import pty, fcntl, termios; print('pty modules OK')"
+```
 
 ---
 

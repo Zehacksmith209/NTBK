@@ -14,8 +14,22 @@ from bridge import Api
 #  tab — the built frontend is loaded off disk.
 # ─────────────────────────────────────────────
 HERE = os.path.dirname(os.path.abspath(__file__))
-DIST = os.path.join(HERE, "..", "frontend", "dist", "index.html")
 DEV_URL = "http://localhost:5273"
+
+# Frozen into a .app, the source tree is gone: PyInstaller unpacks the files
+# it was told to carry into sys._MEIPASS, and `..` from here points at
+# nothing. Everything that reads a file off disk has to ask which of the two
+# worlds it is in.
+FROZEN = getattr(sys, "frozen", False)
+BUNDLE = getattr(sys, "_MEIPASS", HERE)
+
+
+def resource(*parts):
+    """A path to something shipped alongside the code."""
+    return os.path.normpath(os.path.join(BUNDLE if FROZEN else os.path.join(HERE, ".."), *parts))
+
+
+DIST = resource("frontend", "dist", "index.html")
 
 
 def resolve_entry():

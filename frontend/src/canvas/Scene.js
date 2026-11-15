@@ -61,6 +61,9 @@ export class Scene {
     //
     // It is one CSS property and the maths was already ours.
     this.view = { x: 0, y: 0, scale: 1 };
+    // Zero is the app's original, correct behaviour. Never changed except by
+    // the student, explicitly, from Home > Cursor.
+    this.pointerOffset = { x: 0, y: 0 };
     this._applyView();
 
     host.addEventListener("wheel", this._onWheel, { passive: false });
@@ -124,11 +127,36 @@ export class Scene {
   // ── Coordinates ───────────────────────────
   get scale() { return this.view.scale; }
 
-  /** Screen (client) coordinates to scene coordinates. */
+  /**
+   * Screen (client) coordinates to scene coordinates.
+   *
+   * `pointerOffset` corrects for an OS that reports the stylus in the wrong
+   * place — Sidecar does this intermittently, and the app has no way to
+   * detect or fix it, because by the time the event arrives the coordinates
+   * are simply wrong. It is DEFAULT ZERO and must stay that way: zero is the
+   * behaviour that has always been correct, and this is a repair for a
+   * broken environment, not a tuning knob.
+   *
+   * Applied here rather than in the pen tool so drawing, selecting and
+   * hit-testing all shift together. They must agree: ink that lands under
+   * the nib but cannot then be selected from the same place would be worse
+   * than the original fault.
+   *
+   * It also shifts the few callers that pass synthetic coordinates — "put a
+   * new object near here" — which is harmless, since where those land is an
+   * arbitrary choice anyway.
+   */
   toScene(clientX, clientY) {
     const rect = this.sceneEl.getBoundingClientRect();
     const scale = this.scale;
-    return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale };
+    const off = this.pointerOffset ?? { x: 0, y: 0 };
+    // ADDED, not subtracted, so the control reads as direct manipulation:
+    // a positive Y pushes the ink down the page, which is what someone
+    // dragging a slider labelled "Y" expects. Subtracting inverted it.
+    return {
+      x: (clientX - rect.left + off.x) / scale,
+      y: (clientY - rect.top + off.y) / scale,
+    };
   }
 
   zoomBy(factor) {

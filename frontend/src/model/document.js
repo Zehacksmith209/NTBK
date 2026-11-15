@@ -1,4 +1,4 @@
-import { newId } from "./ids.js";
+import { newId, newUuid } from "./ids.js";
 
 // ─────────────────────────────────────────────
 //  DOCUMENT MODEL
@@ -9,7 +9,7 @@ import { newId } from "./ids.js";
 //  invalidating anyone's saved files.
 // ─────────────────────────────────────────────
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // One coordinate space for everything: CSS pixels at 96dpi.
 export const A4_PORTRAIT = { w: 794, h: 1123 };
@@ -65,7 +65,14 @@ export function createEmptyDocument() {
   return {
     format: "ntbk",
     schemaVersion: SCHEMA_VERSION,
-    meta: { created: now, modified: now, app: "ntbk 0.1.0", title: "Untitled" },
+    meta: {
+      // Stable identity for this notebook, independent of its filename.
+      // Written now, before there are many files in the wild, so a later
+      // cross-notebook graph can reference notebooks by id rather than by
+      // path — renaming a file must not break links into it.
+      id: newUuid(),
+      created: now, modified: now, app: "ntbk 0.1.0", title: "Untitled",
+    },
     canvas: {
       mode: "infinite",
       layers: [createLayer(DEFAULT_LAYER_NAME)],
@@ -78,7 +85,42 @@ export function createEmptyDocument() {
     strokes: [],
     objects: [],
     assets: [],
+    graph: createEmptyGraph(),
   };
+}
+
+/**
+ * The knowledge graph: concepts the student names, and the places they point at.
+ *
+ * Top-level rather than inside `canvas`, because canvas holds presentation —
+ * layers, pages, background, viewport — and this is content.
+ *
+ * Three flat lists rather than nesting anchors inside nodes, matching how
+ * `objects` and `strokes` already work, so lookups keep the same shape. A node
+ * has MANY anchors: a concept is defined once, worked through later, examined
+ * later still, and searching it should reach all of them.
+ */
+export function createEmptyGraph() {
+  return { nodes: [], anchors: [], edges: [] };
+}
+
+/**
+ * Bring an older document up to the current schema.
+ *
+ * Runs on every load, not just old files, so a notebook written by a future
+ * build with fields we do not know about still opens.
+ */
+export function migrate(doc) {
+  if (!doc.meta) doc.meta = {};
+  if (!doc.meta.id) doc.meta.id = newUuid();
+  if (!doc.graph) doc.graph = createEmptyGraph();
+  else {
+    doc.graph.nodes ??= [];
+    doc.graph.anchors ??= [];
+    doc.graph.edges ??= [];
+  }
+  doc.schemaVersion = SCHEMA_VERSION;
+  return doc;
 }
 
 export function createStroke({ kind = "pen", points, style, page = "pg_01",
@@ -251,8 +293,24 @@ export class Store {
     this.emit({ type: "layers", ids: [] });
   }
 
+  get graph() {
+    this.data.graph ??= createEmptyGraph();
+    return this.data.graph;
+  }
+
+  setGraph(graph) {
+    this.data.graph = graph ?? createEmptyGraph();
+    // Its own change type: the scene does not need to re-render ink or
+    // objects because a concept was renamed, and the graph panel does not
+    // need to rebuild because a stroke moved.
+    this.emit({ type: "graph", ids: [] });
+  }
+
   replaceDocument(data) {
-    this.data = ensureLayers(data);
+    // Every load goes through migrate(), including documents this build
+    // wrote, so a file that predates a field still opens with it present
+    // rather than failing the first time something reads it.
+    this.data = ensureLayers(migrate(data));
     this.emit({ type: "reload", ids: [] });
   }
 

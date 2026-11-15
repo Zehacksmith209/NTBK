@@ -130,6 +130,48 @@ export function setPages(before, after, label = "Pages") {
   };
 }
 
+/**
+ * Replace the whole knowledge graph.
+ *
+ * Coarse on purpose. A single gesture — "add this region to a new node" —
+ * writes a node AND an anchor, and sometimes an edge; undo has to take all of
+ * them back together, or the student is left with a node pointing nowhere.
+ * The graph is small enough that snapshotting it costs nothing.
+ */
+export function setGraph(from, to, label = "Graph") {
+  return {
+    label,
+    redo: (store) => store.setGraph(clone(to)),
+    undo: (store) => store.setGraph(clone(from)),
+  };
+}
+
+/**
+ * Delete a layer and everything drawn on it, as ONE step.
+ *
+ * Two separate commands would let undo put the layer back without its
+ * contents, or the contents back with nowhere to live. Order matters on the
+ * way back too: the layer has to exist again before the elements that name
+ * it are re-inserted, or they route to whatever layer happens to be first.
+ */
+export function removeLayerWithContents(store, layerId, layersAfter, ids, label = "Delete layer") {
+  const layersBefore = clone(store.data.canvas.layers ?? []);
+  const snapshot = clone(ids.map((id) => store.find(id)).filter(Boolean));
+  const realIds = snapshot.map((e) => e.id);
+  const after = clone(layersAfter);
+  return {
+    label,
+    redo: (s) => {
+      if (realIds.length) s.removeMany(realIds);
+      s.setLayers(clone(after));
+    },
+    undo: (s) => {
+      s.setLayers(clone(layersBefore));
+      if (snapshot.length) s.insertMany(clone(snapshot));
+    },
+  };
+}
+
 /** Adding, renaming, hiding or locking layers, as one undoable step. */
 export function setLayersCommand(before, after, label = "Layers") {
   const from = clone(before);

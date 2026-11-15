@@ -14,7 +14,7 @@ import { createIcons, icons } from "lucide";
 // ─────────────────────────────────────────────
 const TYPE_ICONS = {
   latex: "sigma", image: "image", pdfpage: "file-type-2",
-  graph: "chart-line", code: "code", text: "type",
+  graph: "chart-line", code: "code", text: "type", video: "video",
   line: "minus", arrow: "move-right", rect: "square",
   ellipse: "circle", triangle: "triangle",
 };
@@ -312,7 +312,9 @@ export class ObjectPanel {
         <button class="ntbk-tree-btn" data-eye title="Show or hide the layer">
           <i data-lucide="${layer.visible === false ? "eye-off" : "eye"}"></i></button>
         <button class="ntbk-tree-btn" data-lock title="Lock the layer">
-          <i data-lucide="${layer.locked ? "lock" : "lock-open"}"></i></button>`;
+          <i data-lucide="${layer.locked ? "lock" : "lock-open"}"></i></button>
+        <button class="ntbk-tree-btn" data-del title="Delete this layer">
+          <i data-lucide="trash-2"></i></button>`;
 
       row.addEventListener("click", (event) => {
         if (event.target.closest(".ntbk-tree-btn")) return;
@@ -328,6 +330,11 @@ export class ObjectPanel {
         const now = live();
         if (now) this.app.setLayerFlag(layer.id, "locked", !now.locked);
       });
+      const del = row.querySelector("[data-del]");
+      // There has to be somewhere for the pen to go, so the last layer stays.
+      del.disabled = layers.length <= 1;
+      if (del.disabled) del.title = "A notebook needs at least one layer";
+      del.addEventListener("click", () => this.app.deleteLayer(layer.id));
       this.layerList.appendChild(row);
     });
 

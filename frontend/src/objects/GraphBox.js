@@ -1,10 +1,12 @@
 import JXG from "jsxgraph";
 import { registerObjectType } from "./registry.js";
+import { snapshotBoard, queueSnapshot } from "../graph/snapshot.js";
 import { typeableReadout } from "../ui/NumberField.js";
 import { createObject } from "../model/document.js";
 import {
   createGraphSpec, buildBoard, compileExpression, compileSurface, compile2d,
-  isEquation, parseData, DEFAULT_COLORS, VIEW_PRESETS, applyView3D, surfacesOf,
+  compile3d, isEquation, parseData, DEFAULT_COLORS, VIEW_PRESETS, applyView3D,
+  surfacesOf, zoomBounds, panBounds, zoomOf, DEFAULT_SPAN,
 } from "../graph/GraphRenderer.js";
 
 // ─────────────────────────────────────────────
@@ -64,21 +66,61 @@ registerObjectType("graph", {
     let signature = null;
     const signatureOf = (o) => JSON.stringify([o.w, o.h, o.payload]);
 
-    // The board is mounted live rather than serialised to an image.
+    // A plot on the page is a PICTURE of a board, not a board.
     //
-    // Serialising JSXGraph's SVG and showing it through an <img> silently
-    // drops 3D surfaces: the mesh depends on gradients, clip paths and
-    // visibility that an <img>-loaded SVG cannot resolve, so the axes
-    // survive and the surface vanishes.
+    // The board is built live, photographed a moment later, and then freed.
+    // What stays on the page is one image. A live board is several hundred
+    // SVG nodes plus JSXGraph's own bookkeeping, and a notebook with twenty
+    // of them pays for all twenty on every pan and zoom even though none of
+    // them is being edited. Editing still happens on a live board, in the
+    // plot editor; this one is rebuilt and re-photographed whenever the plot
+    // changes.
     //
-    // Live is also simpler and sharper — it re-renders at whatever size you
-    // resize to. The reason we avoided live boards was gesture ownership,
-    // and pointer-events:none settles that: this board is inert, and the
-    // editor is still the only place a plot is interactive.
+    // (An earlier version of this comment said a serialised 3D surface
+    // vanishes inside an <img>. Measured again with the SVG made standalone
+    // first — see snapshot.js — the surface survives.)
+    let generation = 0;       // bumped whenever the board's look changes
+    let freezeTimer = null;
+    let stillUrl = null;      // object URL of the picture on show, if any
+    const FREEZE_AFTER = 450; // long enough that typing does not thrash it
+
+    function dropStill() {
+      if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+    }
+
+    function scheduleFreeze(delay = FREEZE_AFTER) {
+      clearTimeout(freezeTimer);
+      freezeTimer = setTimeout(() => {
+        const mine = generation;
+        queueSnapshot(async () => {
+          // Anything that changed the board since this was asked for makes
+          // the photograph stale; a newer request is already on its way.
+          if (mine !== generation || !board) return;
+          const url = await snapshotBoard(holder, drawnW, drawnH);
+          if (!url) return;                      // stays live: slower, never wrong
+          const picture = new Image();
+          picture.className = "ntbk-graph-still";
+          picture.alt = "";
+          picture.draggable = false;
+          picture.src = url;
+          await picture.decode().catch(() => {});
+          if (mine !== generation || !board) { URL.revokeObjectURL(url); return; }
+          JXG.JSXGraph.freeBoard(board);
+          board = null;
+          holder.innerHTML = "";
+          holder.appendChild(picture);
+          dropStill();
+          stillUrl = url;
+        });
+      }, delay);
+    }
+
     function draw(next) {
       current = next;
+      generation++;
       if (board) { JXG.JSXGraph.freeBoard(board); board = null; }
       holder.innerHTML = "";
+      dropStill();
       holder.style.width = `${Math.round(next.w)}px`;
       holder.style.height = `${Math.round(next.h)}px`;
       try {
@@ -90,6 +132,7 @@ registerObjectType("graph", {
       drawnW = next.w;
       drawnH = next.h;
       holder.style.transform = "none";
+      scheduleFreeze();
     }
 
     /**
@@ -105,7 +148,46 @@ registerObjectType("graph", {
       holder.style.transform = `scale(${next.w / drawnW}, ${next.h / drawnH})`;
     }
 
+    /**
+     * Coalesce a burst of changes into one rebuild.
+     *
+     * A board is built from scratch every time — there is no incremental
+     * update path in JSXGraph — and a plot carrying an awkward function can
+     * take over 100ms to build. Typing an expression fires a change per
+     * keystroke and dragging a zoom slider fires one per step, so without
+     * this the board is rebuilt tens of times during a single gesture and
+     * every one of them blocks the main thread.
+     *
+     * The first change in a burst draws immediately, so nothing feels
+     * delayed; the rest are collapsed into one trailing rebuild.
+     */
+    let pending = null;
+    let latest = object;
+    let lastDraw = 0;
+    const REBUILD_GAP = 140;
+
+    function drawSoon(next) {
+      // Held explicitly rather than read back at timer time. `current` does
+      // happen to alias the live store object, but this file already carries
+      // scars from depending on that, so the newest value is kept here where
+      // it is obvious.
+      latest = next;
+      const since = performance.now() - lastDraw;
+      if (pending) clearTimeout(pending);
+      if (since >= REBUILD_GAP) {
+        lastDraw = performance.now();
+        draw(latest);
+        return;
+      }
+      pending = setTimeout(() => {
+        pending = null;
+        lastDraw = performance.now();
+        draw(latest);
+      }, REBUILD_GAP - since);
+    }
+
     draw(object);
+    lastDraw = performance.now();
 
     el.addEventListener("dblclick", (event) => {
       event.stopPropagation();
@@ -126,7 +208,7 @@ registerObjectType("graph", {
         if (nextSignature === signature) return;
 
         if (resizedOnly && context.isTransforming?.()) stretch(next);
-        else draw(next);
+        else drawSoon(next);
       },
       /**
        * Move the camera without rebuilding the board.
@@ -136,9 +218,21 @@ registerObjectType("graph", {
        * writes the view into the document only when you let go.
        */
       applyView(view) {
+        // The camera can only be moved on a real board, so a plot that has
+        // been turned into a picture is brought back to life first, and is
+        // photographed again once the dragging stops.
+        if (!board) draw(current);
+        generation++;
         applyView3D(board?.ntbkView3D, view);
+        scheduleFreeze(700);
       },
-      destroy() { if (board) JXG.JSXGraph.freeBoard(board); },
+      destroy() {
+        clearTimeout(freezeTimer);
+        if (pending) clearTimeout(pending);
+        generation++;
+        if (board) { JXG.JSXGraph.freeBoard(board); board = null; }
+        dropStill();
+      },
     };
   },
 });
@@ -240,6 +334,56 @@ export function buildViewSliders(container, view, { onMove, onSettle }) {
     container.appendChild(slider);
   }
   return handles;
+}
+
+/**
+ * Move around the plotted region: a zoom slider and a pad of nudges.
+ *
+ * Both act on the ranges, so they mean the same thing in 2D and 3D and are
+ * saved with the document. `depth` adds the up/down pair a 3D plot needs for
+ * moving through z.
+ */
+export function buildViewControls(container, { zoom, onZoom, onPan, depth = false }) {
+  const zoomRow = document.createElement("div");
+  zoomRow.className = "ntbk-ge-slider";
+  zoomRow.innerHTML = `
+    <label title="How much of the region you are looking at">Zoom</label>
+    <input type="range" min="0.1" max="10" step="0.05" value="${zoom}">
+    <output></output>`;
+  const range = zoomRow.querySelector("input");
+  range.addEventListener("input", () => onZoom(Number(range.value), false));
+  range.addEventListener("change", () => onZoom(Number(range.value), true));
+  container.appendChild(zoomRow);
+  // Typeable, like every other number beside a slider
+  const field = typeableReadout(range, zoomRow.querySelector("output"), {
+    unit: "\u00d7", decimals: 2,
+  });
+
+  const padRow = document.createElement("div");
+  padRow.className = "ntbk-ge-pan";
+  const nudge = (label, title, dx, dy, dz) => {
+    const button = document.createElement("button");
+    button.className = "ntbk-mini";
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener("click", () => onPan(dx, dy, dz));
+    padRow.appendChild(button);
+    return button;
+  };
+  nudge("\u25c0", "Move left", -0.15, 0, 0);
+  nudge("\u25b6", "Move right", 0.15, 0, 0);
+  nudge("\u25b2", "Move up", 0, 0.15, 0);
+  nudge("\u25bc", "Move down", 0, -0.15, 0);
+  if (depth) {
+    nudge("\u2191z", "Up through z", 0, 0, 0.15);
+    nudge("\u2193z", "Down through z", 0, 0, -0.15);
+  }
+  const home = nudge("\u2302", "Back to the middle", 0, 0, 0);
+  home.dataset.home = "1";
+  home.addEventListener("click", () => onPan(0, 0, 0, true));
+  container.appendChild(padRow);
+
+  return { zoomField: field, zoomRange: range };
 }
 
 /** Chart type and data — the statistics plot's whole control set. */
@@ -357,7 +501,10 @@ export class GraphEditor {
 
   renderList() {
     this.list.innerHTML = "";
-    if (this.spec.kind === "surface3d") return this.renderSurfaceControls();
+    if (this.spec.kind === "surface3d") {
+      this.renderSurfaceControls();
+      return this.renderViewControls();
+    }
     if (this.spec.kind === "stats") return this.renderStatsControls();
 
     buildExpressionRows(this.list, this.spec.functions, {
@@ -372,6 +519,68 @@ export class GraphEditor {
         this.place();
       },
     });
+    this.renderViewControls();
+  }
+
+  /** Zoom and pan, the same control the inspector shows. */
+  renderViewControls() {
+    const is2d = !!this.spec.bounds;
+    const span = is2d
+      ? this.spec.bounds[2] - this.spec.bounds[0]
+      : this.spec.xRange[1] - this.spec.xRange[0];
+
+    buildViewControls(this.list, {
+      zoom: zoomOf(span, is2d ? DEFAULT_SPAN.x2d : DEFAULT_SPAN.x3d),
+      depth: !is2d,
+      onZoom: (value) => {
+        const reference = is2d ? DEFAULT_SPAN.x2d : DEFAULT_SPAN.x3d;
+        const now = is2d
+          ? this.spec.bounds[2] - this.spec.bounds[0]
+          : this.spec.xRange[1] - this.spec.xRange[0];
+        const factor = value / zoomOf(now, reference);
+        if (is2d) {
+          this.spec.bounds = zoomBounds(this.spec.bounds, factor);
+        } else {
+          for (const key of ["xRange", "yRange", "zRange"]) {
+            const [min, max] = this.spec[key];
+            const centre = (min + max) / 2;
+            const half = ((max - min) / 2) / factor;
+            this.spec[key] = [centre - half, centre + half];
+          }
+        }
+        this.rebuild();
+      },
+      onPan: (dx, dy, dz, home = false) => {
+        const recentre = ([min, max]) => {
+          const half = (max - min) / 2;
+          return [-half, half];
+        };
+        const shift = ([min, max], fraction) => {
+          const step = (max - min) * fraction;
+          return [min + step, max + step];
+        };
+        if (home) {
+          if (is2d) {
+            const hx = (this.spec.bounds[2] - this.spec.bounds[0]) / 2;
+            const hy = (this.spec.bounds[1] - this.spec.bounds[3]) / 2;
+            this.spec.bounds = [-hx, hy, hx, -hy];
+          } else {
+            for (const key of ["xRange", "yRange", "zRange"]) {
+              this.spec[key] = recentre(this.spec[key]);
+            }
+          }
+        } else if (is2d) {
+          this.spec.bounds = panBounds(this.spec.bounds, dx, -dy);
+        } else {
+          this.spec.xRange = shift(this.spec.xRange, dx);
+          this.spec.yRange = shift(this.spec.yRange, dy);
+          this.spec.zRange = shift(this.spec.zRange, dz);
+        }
+        this.rebuild();
+        this.renderList();
+        this.place();
+      },
+    });
   }
 
   renderSurfaceControls() {
@@ -382,7 +591,7 @@ export class GraphEditor {
 
     buildExpressionRows(this.list, this.spec.surfaces, {
       prefix: "z =",
-      validate: compileSurface,
+      validate: compile3d,
       onEdit: (index, value, ok) => {
         this.spec.surfaces[index].expr = value;
         if (ok) this.rebuild();

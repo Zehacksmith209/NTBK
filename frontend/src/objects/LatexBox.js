@@ -25,6 +25,27 @@ export function createLatexObject(x, y, source = LATEX_DEFAULT_SOURCE) {
   });
 }
 
+/**
+ * The box a formula needs to show whole, so one that arrives ready-made (from
+ * the formula library) is not dropped into a box it has to be scrolled inside.
+ */
+export function measureLatex(source) {
+  const probe = document.createElement("div");
+  probe.className = "ntbk-latex-output";
+  Object.assign(probe.style, {
+    position: "fixed", inset: "auto", left: "-10000px", top: "0",
+    width: "max-content", height: "auto", overflow: "visible", visibility: "hidden",
+  });
+  document.body.appendChild(probe);
+  render(probe, { source, displayMode: true });
+  const { width, height } = probe.getBoundingClientRect();
+  probe.remove();
+  return {
+    w: Math.round(Math.min(900, Math.max(160, width + 36))),
+    h: Math.round(Math.min(600, Math.max(64, height + 28))),
+  };
+}
+
 function render(outputEl, payload) {
   const source = (payload.source ?? "").trim();
   if (!source) {

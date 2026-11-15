@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ntbk latency spike</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  html, body { height: 100%; overflow: hidden; font: 13px -apple-system, system-ui, sans-serif; }
+  /* Without touch-action:none Safari keeps scroll/zoom and the pen never
+     reaches us. This one line is the difference between a canvas and a page. */
+  #pad { position: fixed; inset: 0; touch-action: none; overscroll-behavior: none; background: #fff; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    background: rgba(17,19,23,.92); color: #e6e8ec; padding: 8px 10px;
+    font-variant-numeric: tabular-nums; line-height: 1.45; white-space: pre;
+    font-size: 12px; pointer-events: none;
+  }
+  #hud b { color: #6fa8ff; }
+  #bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; gap: 8px; padding: 8px; }
+  #bar button {
+    flex: 1; padding: 12px; font: inherit; font-size: 14px;
+    border: 1px solid #c8ccd3; border-radius: 8px; background: #f7f8fa;
+  }
+  #verdict { position: fixed; inset: auto 8px 60px 8px; z-index: 10;
+    background: rgba(17,19,23,.92); color: #e6e8ec; padding: 10px;
+    border-radius: 8px; font-size: 12px; line-height: 1.5; display: none; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="pad"></canvas>
+<div id="hud">waiting for input…</div>
+<div id="verdict"></div>
+<div id="bar">
+  <button id="clear">Clear</button>
+  <button id="report">Show findings</button>
+</div>
+
+<script type="module">
+import { getStroke } from "./perfect-freehand.mjs";
+
+const pad = document.getElementById("pad");
+const ctx = pad.getContext("2d", { desynchronized: true });
+const hud = document.getElementById("hud");
+const verdictEl = document.getElementById("verdict");
+
+let dpr = 1;
+function size() {
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  pad.width = Math.round(innerWidth * dpr);
+  pad.height = Math.round(innerHeight * dpr);
+  pad.style.width = innerWidth + "px";
+  pad.style.height = innerHeight + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+size();
+addEventListener("resize", size);
+
+// ── what we are actually here to measure ──
+const stats = {
+  pointerTypes: new Set(),
+  pressures: [],            // every raw pressure seen from a pen
+  coalescedPerEvent: [],    // samples delivered per pointermove
+  frameGaps: [],            // ms between paints while drawing
+  strokes: 0,
+  points: 0,
+  maxCoalesced: 0,
+  penEvents: 0,
+  touchEventsWhilePenDown: 0,
+};
+
+let drawing = false;
+let penActive = false;
+let raw = [];
+const done = [];
+let lastFrame = 0;
+
+const toStroke = (pts, last) => getStroke(pts, {
+  size: 4, thinning: 0.6, smoothing: 0.5, streamline: 0.32,
+  simulatePressure: !stats.pressures.some((p) => p !== 0.5),
+  last,
+});
+
+function pathOf(outline) {
+  const p = new Path2D();
+  if (!outline.length) return p;
+  p.moveTo(outline[0][0], outline[0][1]);
+  for (let i = 1; i < outline.length; i++) p.lineTo(outline[i][0], outline[i][1]);
+  p.closePath();
+  return p;
+}
+
+function paint() {
+  const now = performance.now();
+  if (lastFrame) stats.frameGaps.push(now - lastFrame);
+  lastFrame = now;
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  ctx.fillStyle = "#111";
+  for (const o of done) ctx.fill(pathOf(o));
+  if (raw.length) ctx.fill(pathOf(toStroke(raw, false)));
+}
+
+pad.addEventListener("pointerdown", (e) => {
+  // Palm rejection: once a pen is down, fingers are not input.
+  if (e.pointerType === "touch" && penActive) { stats.touchEventsWhilePenDown++; return; }
+  if (e.pointerType === "pen") { penActive = true; stats.penEvents++; }
+  stats.pointerTypes.add(e.pointerType);
+  drawing = true;
+  raw = [];
+  pad.setPointerCapture(e.pointerId);
+  take(e);
+  paint();
+});
+
+pad.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  if (e.pointerType === "touch" && penActive) { stats.touchEventsWhilePenDown++; return; }
+  // The whole question: does Safari hand us every sample the digitiser saw,
+  // or only one per frame? A pen at 120Hz on a 60Hz display means half the
+  // stroke lives in here.
+  const co = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  const samples = co.length ? co : [e];
+  stats.coalescedPerEvent.push(samples.length);
+  stats.maxCoalesced = Math.max(stats.maxCoalesced, samples.length);
+  for (const s of samples) take(s);
+  paint();
+  hudUpdate();
+});
+
+function endStroke(e) {
+  if (!drawing) return;
+  drawing = false;
+  if (raw.length) { done.push(toStroke(raw, true)); stats.strokes++; }
+  raw = [];
+  if (e && e.pointerType === "pen") setTimeout(() => { penActive = false; }, 400);
+  paint();
+  hudUpdate();
+}
+pad.addEventListener("pointerup", endStroke);
+pad.addEventListener("pointercancel", endStroke);
+pad.addEventListener("pointerleave", endStroke);
+
+function take(e) {
+  const pressure = e.pressure;
+  if (e.pointerType === "pen") stats.pressures.push(pressure);
+  raw.push([e.clientX, e.clientY, pressure > 0 ? pressure : 0.5]);
+  stats.points++;
+}
+
+const median = (a) => { if (!a.length) return 0; const s=[...a].sort((x,y)=>x-y); return s[s.length>>1]; };
+const pct = (a, p) => { if (!a.length) return 0; const s=[...a].sort((x,y)=>x-y); return s[Math.floor(s.length*p)]; };
+
+function hudUpdate() {
+  const p = stats.pressures;
+  const distinct = new Set(p.map((v) => v.toFixed(3))).size;
+  hud.textContent =
+`pointerType   ${[...stats.pointerTypes].join(", ") || "—"}
+pressure      n=${p.length}  distinct=${distinct}  min=${p.length?Math.min(...p).toFixed(3):"—"}  max=${p.length?Math.max(...p).toFixed(3):"—"}
+coalesced     median=${median(stats.coalescedPerEvent)}  max=${stats.maxCoalesced}
+frame gap     median=${median(stats.frameGaps).toFixed(1)}ms  p95=${pct(stats.frameGaps,0.95).toFixed(1)}ms
+strokes       ${stats.strokes}   points ${stats.points}
+palm ignored  ${stats.touchEventsWhilePenDown}`;
+}
+hudUpdate();
+
+document.getElementById("clear").addEventListener("click", () => {
+  done.length = 0; raw = []; paint();
+});
+
+document.getElementById("report").addEventListener("click", () => {
+  const p = stats.pressures;
+  const distinct = new Set(p.map((v) => v.toFixed(3))).size;
+  const gaps = stats.frameGaps;
+  const q1 = stats.pointerTypes.has("pen")
+    ? (distinct > 8
+        ? `YES — pen fires, and pressure varies (${distinct} distinct values, ${Math.min(...p).toFixed(2)}–${Math.max(...p).toFixed(2)})`
+        : `PARTLY — pen fires but pressure looks constant (${distinct} distinct value${distinct===1?"":"s"}). Capacitive stylus, or pressure not reported.`)
+    : `NO — no pointerType 'pen' seen. Types: ${[...stats.pointerTypes].join(", ") || "none"}`;
+  const q2 = `median ${median(stats.coalescedPerEvent)} per move, peak ${stats.maxCoalesced}`;
+  const q3 = `median frame ${median(gaps).toFixed(1)}ms, p95 ${pct(gaps,0.95).toFixed(1)}ms`
+    + (median(gaps) < 20 ? "  (60fps held)" : "  (DROPPING FRAMES)");
+  verdictEl.style.display = "block";
+  verdictEl.textContent =
+`1. pressure real?   ${q1}
+2. coalesced rate   ${q2}
+3. paint timing     ${q3}
+
+strokes ${stats.strokes} · points ${stats.points} · palm events ignored ${stats.touchEventsWhilePenDown}
+device pixel ratio ${dpr}
+
+Subjective feel is yours to judge — write a
+sentence of normal-size handwriting and see
+whether the ink sits under the nib or trails it.`;
+});
+</script>
+</body>
+</html>

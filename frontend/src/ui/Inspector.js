@@ -1,9 +1,14 @@
 import { createIcons, icons } from "lucide";
 import {
   buildExpressionRows, buildViewPresets, buildViewSliders, buildStatsControls,
+  buildViewControls,
 } from "../objects/GraphBox.js";
-import { compile2d, compileSurface, surfacesOf } from "../graph/GraphRenderer.js";
+import {
+  compile2d, compile3d, surfacesOf, zoomBounds, panBounds, zoomOf, DEFAULT_SPAN,
+} from "../graph/GraphRenderer.js";
 import katex from "katex";
+import { analyse, intersections } from "../graph/analysis.js";
+import { formatValue, formatPoint } from "../graph/exact.js";
 
 // ─────────────────────────────────────────────
 //  INSPECTOR
@@ -17,7 +22,7 @@ import katex from "katex";
 // ─────────────────────────────────────────────
 const TYPE_NAMES = {
   latex: "Formula (LaTeX)", image: "Image", pdfpage: "PDF page",
-  graph: "Plot", code: "Code cell", text: "Text",
+  graph: "Plot", code: "Code cell", text: "Text", video: "Video",
   rect: "Rectangle", ellipse: "Ellipse", line: "Line",
   arrow: "Arrow", triangle: "Triangle",
 };
@@ -166,6 +171,11 @@ function boundsOf(app, element) {
   };
 }
 
+// Exact or decimal, remembered across redraws of the panel. Deliberately not
+// saved into the document: it is how you want to READ the numbers today, not
+// something about the plot itself.
+let coordMode = "decimal";
+
 function detailsTab(el, app, element) {
   const page = app.pageContaining(element);
   const layer = (app.store.data.canvas.layers ?? []).find((l) => l.id === element.layerId);
@@ -190,6 +200,153 @@ function detailsTab(el, app, element) {
 
   field(el, "Visible", element.visible === false ? "No — hidden" : "Yes");
   field(el, "Locked", element.locked ? "Yes — not editable" : "No");
+
+  if (element.type === "graph" && element.payload?.kind === "function2d") {
+    functionFacts(el, app, element);
+  }
+}
+
+/**
+ * What the plotted functions actually do, over the x range on screen.
+ *
+ * Every number here is measured by sampling, so each is only true of the
+ * window it was measured in. "Highest in view" can change when you pan, and
+ * saying so in the label is the difference between a useful panel and a
+ * misleading one.
+ */
+function functionFacts(el, app, element) {
+  const spec = app.store.find(element.id).payload;
+  const list = (spec.functions ?? []).filter((f) => (f.expr ?? "").trim());
+  if (!list.length) return;
+
+  const [xMin, , xMax] = spec.bounds ?? [-8, 6, 8, -6];
+  const bounds = [xMin, xMax];
+
+  const head = document.createElement("div");
+  head.className = "ntbk-insp-facts-head";
+  const caption = document.createElement("span");
+  caption.textContent = `In view: x from ${formatValue(xMin, "decimal", 2)} `
+    + `to ${formatValue(xMax, "decimal", 2)}`;
+  head.appendChild(caption);
+
+  const toggle = document.createElement("button");
+  toggle.className = "ntbk-mini";
+  toggle.title = "Switch between exact and decimal coordinates";
+  const relabel = () => { toggle.textContent = coordMode === "exact" ? "Exact" : "Decimal"; };
+  relabel();
+  toggle.addEventListener("click", () => {
+    coordMode = coordMode === "exact" ? "decimal" : "exact";
+    relabel();
+    for (const node of [...el.querySelectorAll(".ntbk-insp-fn")]) node.remove();
+    draw();
+  });
+  head.appendChild(toggle);
+  el.appendChild(head);
+
+  const num = (v) => formatValue(v, coordMode);
+  const pt = (x, y) => formatPoint(x, y, coordMode);
+
+  function draw() {
+    let solutions = 0;
+
+    for (const fn of list) {
+      const box = document.createElement("div");
+      box.className = "ntbk-insp-fn";
+
+      const title = document.createElement("div");
+      title.className = "ntbk-insp-fn-title";
+      const dot = document.createElement("span");
+      dot.className = "ntbk-insp-dot";
+      dot.style.background = fn.color;
+      title.appendChild(dot);
+      title.appendChild(document.createTextNode(`y = ${fn.expr}`));
+      box.appendChild(title);
+
+      const a = analyse(fn.expr, bounds);
+      if (!a.ok) {
+        const bad = document.createElement("div");
+        bad.className = "ntbk-insp-fn-row";
+        bad.textContent = a.error;
+        box.appendChild(bad);
+        el.appendChild(box);
+        continue;
+      }
+
+      fact(box, "Domain", a.wholeWindowDefined
+        ? `all of ${num(xMin)} to ${num(xMax)}`
+        : a.domain.map(([lo, hi]) => `${num(lo)} to ${num(hi)}`).join(", "));
+      fact(box, "Range", a.unbounded
+        ? "unbounded — asymptote in view"
+        : `${num(a.range[0])} to ${num(a.range[1])}`);
+
+      // A turning point is a real maximum of the function. The window extreme
+      // is often just where the view was cut off, so the two are named
+      // differently rather than both being called "max".
+      const maxima = a.turning.filter((t) => t.kind === "max");
+      const minima = a.turning.filter((t) => t.kind === "min");
+      if (maxima.length) fact(box, "Maximum", maxima.map((t) => pt(t.x, t.y)).join("   "));
+      if (minima.length) fact(box, "Minimum", minima.map((t) => pt(t.x, t.y)).join("   "));
+      if (a.crowded) {
+        fact(box, "Note", `oscillates rapidly — ${a.turningCount} turning points in view,`
+          + " showing the first few");
+      }
+      if (!maxima.length && !minima.length && !a.unbounded) {
+        fact(box, "Highest in view", pt(a.max.x, a.max.y));
+        fact(box, "Lowest in view", pt(a.min.x, a.min.y));
+      }
+
+      solutions += a.rootCount;
+      const shownRoots = a.roots.map((x) => pt(x, 0)).join("   ");
+      const moreRoots = a.rootCount - a.roots.length;
+      fact(box, `Roots (${a.rootCount})`,
+        a.rootCount
+          ? (moreRoots > 0 ? `${shownRoots}   … and ${moreRoots} more` : shownRoots)
+          : "none in view");
+
+      el.appendChild(box);
+    }
+
+    // Where two curves meet — the other thing "solution" can mean
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const meets = intersections(list[i].expr, list[j].expr, bounds);
+        if (!meets.length) continue;
+        solutions += meets.length;
+        const shownMeets = meets.slice(0, 24);
+        const moreMeets = meets.length - shownMeets.length;
+        const box = document.createElement("div");
+        box.className = "ntbk-insp-fn";
+        const title = document.createElement("div");
+        title.className = "ntbk-insp-fn-title";
+        title.textContent = `${list[i].expr} = ${list[j].expr}`;
+        box.appendChild(title);
+        fact(box, `Intersections (${meets.length})`,
+          shownMeets.map((m) => pt(m.x, m.y)).join("   ")
+            + (moreMeets > 0 ? `   … and ${moreMeets} more` : ""));
+        el.appendChild(box);
+      }
+    }
+
+    const total = document.createElement("div");
+    total.className = "ntbk-insp-fn ntbk-insp-fn-total";
+    total.textContent = `${solutions} solution${solutions === 1 ? "" : "s"} in view`;
+    el.appendChild(total);
+  }
+
+  draw();
+}
+
+/** One label/value line inside a function block. */
+function fact(parent, label, value) {
+  const row = document.createElement("div");
+  row.className = "ntbk-insp-fn-row";
+  const name = document.createElement("span");
+  name.textContent = label;
+  const v = document.createElement("b");
+  v.textContent = value;
+  row.appendChild(name);
+  row.appendChild(v);
+  parent.appendChild(row);
 }
 
 const SWATCHES = [
@@ -273,6 +430,7 @@ function editorTab(el, app, element, redraw) {
     case "text": return textEditor(el, app, element);
     case "code": return codeEditor(el, app, element);
     case "graph": return plotEditor(el, app, element, redraw);
+    case "video": return videoEditor(el, app, element);
     case "image":
     case "pdfpage": return boxEditor(el, app, element);
     default: return note(el, "Nothing to edit for this type yet.");
@@ -494,7 +652,7 @@ function plotEditor(el, app, element, redraw) {
     list.className = "ntbk-insp-rows";
     buildExpressionRows(list, items(), {
       prefix: is3d ? "z =" : "y =",
-      validate: is3d ? compileSurface : compile2d,
+      validate: is3d ? compile3d : compile2d,
       onEdit: (index, value, ok, input) => {
         beginEdit();
         const next = items().map((f, i) => (i === index ? { ...f, expr: value } : f));
@@ -543,6 +701,28 @@ function plotEditor(el, app, element, redraw) {
   }
 
   if (spec().kind === "surface3d") {
+    // Mesh or solid. JSXGraph fixes this when the element is built, so the
+    // change is written to the spec and the board is rebuilt — there is no
+    // attribute to flip on a live surface.
+    const shadeRow = control(el, "Surface");
+    const modes = document.createElement("div");
+    modes.className = "ntbk-insp-presets";
+    for (const [value, label] of [["wireframe", "Mesh"], ["shaded", "Shaded"]]) {
+      const button = document.createElement("button");
+      button.className = "ntbk-popover-mode";
+      button.textContent = label;
+      button.classList.toggle("is-active", (spec().shading ?? "wireframe") === value);
+      button.addEventListener("click", () => {
+        if ((spec().shading ?? "wireframe") === value) return;
+        app.updateObjectPayload(id, { ...spec(), shading: value }, "Surface style");
+        for (const other of modes.children) other.classList.remove("is-active");
+        button.classList.add("is-active");
+        redraw?.();
+      });
+      modes.appendChild(button);
+    }
+    shadeRow.appendChild(modes);
+
     const row = control(el, "View");
     const presets = document.createElement("div");
     presets.className = "ntbk-insp-presets";
@@ -614,6 +794,72 @@ function plotEditor(el, app, element, redraw) {
     range("y range", (b) => `${b[3]}, ${b[1]}`, (b, min, max) => [b[0], max, b[2], min]);
   }
 
+  // ── Getting around the region ──
+  const is2d = !!spec().bounds;
+  const span = is2d
+    ? spec().bounds[2] - spec().bounds[0]
+    : (spec().xRange?.[1] ?? 5) - (spec().xRange?.[0] ?? -5);
+  const reference = is2d ? DEFAULT_SPAN.x2d : DEFAULT_SPAN.x3d;
+
+  let zoomBase = null;
+  buildViewControls(el, {
+    zoom: zoomOf(span, reference),
+    depth: !is2d,
+    onZoom: (value, settled) => {
+      // Live while dragging, one history entry when you let go
+      zoomBase = zoomBase ?? clone(spec());
+      const factor = value / zoomOf(
+        is2d ? zoomBase.bounds[2] - zoomBase.bounds[0]
+             : zoomBase.xRange[1] - zoomBase.xRange[0], reference);
+      const next = is2d
+        ? { ...spec(), bounds: zoomBounds(zoomBase.bounds, factor) }
+        : {
+            ...spec(),
+            xRange: scaleAbout(zoomBase.xRange, factor),
+            yRange: scaleAbout(zoomBase.yRange, factor),
+            zRange: scaleAbout(zoomBase.zRange, factor),
+          };
+      if (settled) {
+        app.recordPayloadEdit(id, zoomBase, clone(next), "Zoom");
+        app.previewObjectPayload(id, next);
+        zoomBase = null;
+      } else {
+        app.previewObjectPayload(id, next);
+      }
+    },
+    onPan: (dx, dy, dz, home = false) => {
+      const current = spec();
+      if (home) {
+        // Back to a region centred on the origin, keeping the zoom
+        const centre = (r) => {
+          const half = (r[1] - r[0]) / 2;
+          return [-half, half];
+        };
+        const next = is2d
+          ? { ...current, bounds: (() => {
+              const hx = (current.bounds[2] - current.bounds[0]) / 2;
+              const hy = (current.bounds[1] - current.bounds[3]) / 2;
+              return [-hx, hy, hx, -hy];
+            })() }
+          : { ...current, xRange: centre(current.xRange),
+              yRange: centre(current.yRange), zRange: centre(current.zRange) };
+        app.updateObjectPayload(id, next, "Centre");
+        redraw();
+        return;
+      }
+      const next = is2d
+        ? { ...current, bounds: panBounds(current.bounds, dx, -dy) }
+        : {
+            ...current,
+            xRange: shiftBy(current.xRange, dx),
+            yRange: shiftBy(current.yRange, dy),
+            zRange: shiftBy(current.zRange, dz),
+          };
+      app.updateObjectPayload(id, next, "Pan");
+      redraw();
+    },
+  });
+
   boxEditor(el, app, element);
 
   const button = document.createElement("button");
@@ -621,6 +867,17 @@ function plotEditor(el, app, element, redraw) {
   button.textContent = "Open the full plot editor";
   button.addEventListener("click", () => app.editElement(id));
   el.appendChild(button);
+}
+
+function scaleAbout([min, max], factor) {
+  const centre = (min + max) / 2;
+  const half = ((max - min) / 2) / factor;
+  return [centre - half, centre + half];
+}
+
+function shiftBy([min, max], fraction) {
+  const step = (max - min) * fraction;
+  return [min + step, max + step];
 }
 
 function clone(value) {
@@ -645,6 +902,17 @@ function debounce(fn, wait = 140) {
 }
 
 /** Size, for anything with a real box. */
+function videoEditor(el, app, element) {
+  const id = element.id;
+  textRow(el, "Address", element.payload?.url ?? "", (value) => {
+    app.updateObjectPayload(id, { ...app.store.find(id).payload, url: String(value).trim() },
+      "Change video");
+  });
+  boxEditor(el, app, element);
+  note(el, "Plays from the internet, so it needs a connection. Nothing is "
+    + "saved into the notebook except the address.");
+}
+
 function boxEditor(el, app, element) {
   textRow(el, "Width", Math.round(element.w ?? 0),
     (value) => app.setElementBox(element.id, { w: Math.max(20, value) }), { type: "number" });

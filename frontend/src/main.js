@@ -4,7 +4,8 @@ import { Store, createEmptyDocument, createPage, createLayer, ensureLayers,
          SCHEMA_VERSION, createStroke } from "./model/document.js";
 import { newId } from "./model/ids.js";
 import { History, addElements, removeElements, patchElements, setPages,
-         setLayersCommand } from "./model/history.js";
+         setLayersCommand, removeLayerWithContents
+} from "./model/history.js";
 import { Scene } from "./canvas/Scene.js";
 import { SelectionController } from "./canvas/SelectionController.js";
 import { ScrollBars } from "./canvas/ScrollBars.js";
@@ -12,20 +13,29 @@ import { PenTool } from "./tools/PenTool.js";
 import { SelectTool, hitTestAt } from "./tools/SelectTool.js";
 import { EraserTool } from "./tools/EraserTool.js";
 import { ShapeTool, SHAPE_KINDS, SHAPE_LABELS } from "./tools/ShapeTool.js";
-import { buildRibbon } from "./ui/Ribbon.js";
+import { buildRibbon, restoreTheme } from "./ui/Ribbon.js";
+import { KnowledgeController } from "./graph/KnowledgeController.js";
 import { openContextMenu, closeContextMenu } from "./ui/ContextMenu.js";
 import { openInspector, closeInspector } from "./ui/Inspector.js";
 import { VIEW_PRESETS } from "./graph/GraphRenderer.js";
 import { ObjectPanel } from "./ui/ObjectPanel.js";
+import { GraphPanel } from "./ui/GraphPanel.js";
+import { GraphOverlay } from "./graph/GraphOverlay.js";
+import { isCompanion, CompanionClient, askToPair, mountStatus } from "./companion/client.js";
 import { bridge } from "./bridge.js";
-import { createLatexObject } from "./objects/LatexBox.js";
+import { createLatexObject, measureLatex } from "./objects/LatexBox.js";
 import { createImageObject } from "./objects/ImageBox.js";
 import { createPdfPageObject } from "./objects/PdfPage.js";
 import { PdfService } from "./pdf/PdfService.js";
 import { createGraphObject, GraphEditor } from "./objects/GraphBox.js";
 import { createCodeObject } from "./objects/CodeCell.js";
+import { createVideoObject, parseVideoUrl } from "./objects/VideoBox.js";
 import { createTextObject, DEFAULT_TEXT_SIZE } from "./objects/TextBox.js";
 import { Ruler } from "./tools/Ruler.js";
+import { Protractor } from "./tools/Protractor.js";
+import { Compass } from "./tools/Compass.js";
+import { Instruments } from "./tools/Instruments.js";
+import { FormulaPanel } from "./ui/FormulaPanel.js";
 import { renderPageToPng } from "./export/renderPage.js";
 import { TextTool } from "./tools/TextTool.js";
 import { openPdfDialog } from "./ui/PdfDialog.js";
@@ -77,6 +87,10 @@ class App {
       updateObjectPayload: (id, payload) => this.updateObjectPayload(id, payload),
     });
 
+    // The knowledge graph. Constructed after the store so it can subscribe,
+    // and before the UI so panels can read it on first render.
+    this.knowledge = new KnowledgeController(this);
+
     this.selection = new Set();
     this.transforming = false;
     this.selectionController = new SelectionController(this);
@@ -95,7 +109,21 @@ class App {
     this.tool = null;
 
     root.querySelector("#ribbon").appendChild(buildRibbon(this));
+    // After the ribbon exists, so the button can pick up the right icon
+    restoreTheme();
+    // A correction the student set up last time has to be in place before
+    // the first stroke, not after they notice it is wrong again.
+    bridge.pointerOffset().then((state) => {
+      this.scene.pointerOffset = { ...state.active };
+    });
     this.panel = new ObjectPanel(this, root.querySelector("#object-panel"));
+
+    // Lives inside the object panel's body, below Layers, so it collapses
+    // with the sidebar and shares its scrolling.
+    const graphHost = document.createElement("div");
+    root.querySelector("#object-panel .ntbk-panel-body")?.appendChild(graphHost);
+    this.graphPanel = new GraphPanel(this, graphHost);
+    this.graphOverlay = new GraphOverlay(this);
     // Lives in the status bar beside the page indicator rather than up in the
     // ribbon — it belongs with the thing it counts
     document.querySelector("#add-page").addEventListener("click", () => this.addPage());
@@ -116,6 +144,12 @@ class App {
     });
 
     this.ruler = new Ruler(this);
+    this.protractor = new Protractor(this);
+    this.compass = new Compass(this);
+    // What the pen asks about edges. The compass is not in it: it draws with
+    // its own pencil and has no edge to rule against.
+    this.instruments = new Instruments([this.ruler, this.protractor]);
+    this.formulas = new FormulaPanel(this);
 
     this.languages = {};
     this.loadLanguages();
@@ -250,7 +284,7 @@ class App {
 
     const label = {
       latex: "Formula", image: "Image", pdfpage: "PDF page",
-      graph: "Plot", code: "Code", text: "Text",
+      graph: "Plot", code: "Code", text: "Text", video: "Video",
     }[element.type] ?? "Object";
 
     if (element.type === "code" && element.payload?.filename) {
@@ -445,6 +479,145 @@ class App {
     // panel, so setting this afterwards leaves the old layer looking active.
     this._activeLayerId = next[next.length - 1].id;
     this.history.run(setLayersCommand(layers, next, "Add layer"));
+  }
+
+  /**
+   * Delete a layer, and everything drawn on it.
+   *
+   * Content is removed rather than migrated. Moving it to a neighbouring
+   * layer sounds kinder but silently changes what is in front of what, which
+   * is the one thing layers exist to control — better to take it away
+   * visibly, and leave undo to put it back.
+   */
+  deleteLayer(id) {
+    const layers = this.store.data.canvas.layers ?? [];
+    if (layers.length <= 1) {
+      this._flash("A notebook needs at least one layer");
+      return;
+    }
+    const layer = layers.find((l) => l.id === id);
+    if (!layer) return;
+
+    // Elements stored with layerId null live on the FIRST layer, so deleting
+    // that one has to sweep them up as well or they would survive pointing
+    // at a layer that no longer exists.
+    const isFirst = layers[0].id === id;
+    const onIt = (element) => element.layerId === id || (isFirst && !element.layerId);
+    const doomed = [
+      ...this.store.strokes.filter(onIt),
+      ...this.store.objects.filter(onIt),
+    ].map((element) => element.id);
+
+    if (doomed.length && !window.confirm(
+      `Delete “${layer.name}” and the ${doomed.length} item${doomed.length === 1 ? "" : "s"} on it?`)) {
+      return;
+    }
+
+    const next = layers.filter((l) => l.id !== id);
+    // Claim the replacement BEFORE the command runs: the store change is what
+    // repaints the panel, so setting it afterwards leaves a dead id active.
+    if (this._activeLayerId === id) this._activeLayerId = next[0].id;
+    this.setSelection([...this.selection].filter((sid) => !doomed.includes(sid)));
+    this.history.run(removeLayerWithContents(this.store, id, next, doomed,
+      `Delete ${layer.name}`));
+  }
+
+  // ── Companion mode ────────────────────────
+  /**
+   * Start serving this notebook to another device on the LAN.
+   *
+   * Off until asked for. The code is shown on this screen and nowhere else.
+   */
+  async startCompanion() {
+    const info = await bridge.companionStart();
+    if (!info?.running) { this._flash("Could not start companion mode"); return info; }
+    this._companionOn = true;
+    await this._pushCompanionDocument();
+    // Push a fresh snapshot after edits, so a device joining later gets the
+    // current notebook rather than the one from when the server started.
+    this._companionPush ??= () => {
+      clearTimeout(this._companionTimer);
+      this._companionTimer = setTimeout(() => this._pushCompanionDocument(), 800);
+    };
+    this.store.subscribe(this._companionPush);
+    return info;
+  }
+
+  async stopCompanion() {
+    this._companionOn = false;
+    await bridge.companionStop();
+  }
+
+  async _pushCompanionDocument() {
+    if (!this._companionOn) return;
+    await bridge.companionSetDocument(JSON.stringify(this.store.toJSON()));
+  }
+
+  /**
+   * A command that arrived from a paired device.
+   *
+   * Not implemented yet, and deliberately loud rather than a silent no-op:
+   * this is step 2 of the build order, and it cannot work until the command
+   * factories store their payload as DATA rather than in closure scope.
+   * Right now JSON.stringify of a command yields only its label.
+   */
+  applyRemoteCommand(command) {
+    console.warn("companion: inbound commands not implemented yet", command?.kind);
+    this._flash("A paired device sent a change — editing sync is not built yet");
+  }
+
+  // ── Knowledge graph ───────────────────────
+  openGraphPanel() {
+    this.panel?.setCollapsed?.(false);
+    this.graphPanel?.setCollapsed(false);
+  }
+
+  /** Built on first use, because Cytoscape is only loaded then. */
+  async openFullGraph() {
+    if (!this._fullGraph) {
+      const { FullGraphView } = await import("./graph/FullGraphView.js");
+      this._fullGraph = new FullGraphView(this);
+    }
+    await this._fullGraph.open();
+  }
+
+  refreshGraphOverlay() {
+    this.graphOverlay?.refresh();
+  }
+
+  /**
+   * Go to where a concept lives, and say so.
+   *
+   * Reuses the same navigation the object tree uses, so "jump to a region"
+   * behaves exactly like "jump to an object" — one navigation model, not two.
+   */
+  goToGraphAnchor(anchor) {
+    const rect = this.knowledge.sceneRect(anchor);
+    if (!rect) return;
+    // Remembered so "back to graph" can return the student to where they
+    // were. Without it every jump is one-way and the feature stops being used.
+    this._graphReturn = { ...this.scene.view };
+    // Centred the same way goToElement does, so a jump from the graph and a
+    // jump from the object tree feel identical — one navigation model.
+    const host = this.host.getBoundingClientRect();
+    const scale = this.scene.scale;
+    this.scene.view.x = host.width / 2 - (rect.x + rect.w / 2) * scale;
+    this.scene.view.y = host.height / 2 - (rect.y + rect.h / 2) * scale;
+    this.scene._applyView();
+    this.scene._emitTransform();
+    const page = this.store.data.canvas.pages.find((p) => p.id === anchor.pageId);
+    const node = this.knowledge.node(anchor.nodeId);
+    this._flash(`${node?.label ?? "Region"} — page ${page ? page.index + 1 : "?"}`);
+    this.graphOverlay?.flash(anchor.id);
+  }
+
+  /** Put the canvas back where it was before the last jump. */
+  backFromGraphAnchor() {
+    if (!this._graphReturn) return;
+    this.scene.view = { ...this._graphReturn };
+    this._graphReturn = null;
+    this.scene._applyView();
+    this.scene._emitTransform();
   }
 
   setActiveLayer(id) {
@@ -662,14 +835,57 @@ class App {
   }
 
   // ── Objects ───────────────────────────────
-  insertLatex() {
+  /**
+   * Put an equation on the page. With no `source` it is the stock example,
+   * ready to be typed over; the formula library passes its own.
+   */
+  insertLatex(source) {
     const rect = this.host.getBoundingClientRect();
     const centre = this.scene.toScene(
       rect.left + rect.width / 2, rect.top + rect.height / 3);
-    const object = createLatexObject(Math.round(centre.x - 120), Math.round(centre.y - 48));
+    const object = source
+      ? createLatexObject(0, 0, source)
+      : createLatexObject(0, 0);
+    if (source) Object.assign(object, measureLatex(source));
+    object.x = Math.round(centre.x - object.w / 2);
+    object.y = Math.round(centre.y - object.h / 2);
+    // Several in a row (a formula, then its worked answer) would otherwise
+    // land on top of each other and look like one, so each goes under the last.
+    const covers = (other) => other.type === "latex"
+      && other.x < object.x + object.w && object.x < other.x + other.w
+      && other.y < object.y + object.h && object.y < other.y + other.h;
+    for (let tries = 0; tries < 40; tries++) {
+      const inTheWay = this.store.objects.find(covers);
+      if (!inTheWay) break;
+      object.y = inTheWay.y + inTheWay.h + 12;
+    }
     this.history.run(addElements([this.adopt(object)], "Insert LaTeX"));
     this.setTool("select");
     this.setSelection([object.id]);
+  }
+
+  toggleFormulaLibrary() {
+    return this.formulas.toggle();
+  }
+
+  /**
+   * Put a video from the internet on the page.
+   *
+   * Returns false for an address that is not a link at all, so the caller
+   * can say so next to the box the address was typed into.
+   */
+  insertVideo(url) {
+    if (!parseVideoUrl(url)) return false;
+    const rect = this.host.getBoundingClientRect();
+    const centre = this.scene.toScene(
+      rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const object = createVideoObject(0, 0, url);
+    object.x = Math.round(centre.x - object.w / 2);
+    object.y = Math.round(centre.y - object.h / 2);
+    this.history.run(addElements([this.adopt(object)], "Insert video"));
+    this.setTool("select");
+    this.setSelection([object.id]);
+    return true;
   }
 
   /** Bring media in from a file picker, a paste or a drop. */
@@ -944,9 +1160,11 @@ class App {
     const pages = this.store.data.canvas.pages ?? [];
     if (!pages.length) return this._flash("Nothing to export");
 
-    // The ruler is an instrument, not content — it must never print
-    const rulerWasOut = this.ruler.visible;
-    if (rulerWasOut) this.ruler.hide();
+    // Instruments are not content — they must never print. Taken off the
+    // screen rather than put away, so each is still where it was afterwards.
+    const laidOut = [this.ruler, this.protractor, this.compass]
+      .filter((instrument) => instrument.visible);
+    for (const instrument of laidOut) instrument.el.hidden = true;
     const hadSelection = [...this.selection];
     this.setSelection([]);
 
@@ -971,7 +1189,7 @@ class App {
     } catch (error) {
       this._flash(`Export failed: ${error.message}`);
     } finally {
-      if (rulerWasOut) this.ruler.show();
+      for (const instrument of laidOut) instrument.el.hidden = false;
       if (hadSelection.length) this.setSelection(hadSelection);
     }
   }
@@ -992,8 +1210,26 @@ class App {
   }
 
   _syncRulerButton() {
-    const button = document.querySelector('[data-action="ruler"]');
-    button?.classList.toggle("is-active", this.ruler.visible);
+    for (const name of ["ruler", "protractor", "compass"]) {
+      const button = document.querySelector(`[data-action="${name}"]`);
+      button?.classList.toggle("is-active", this[name].visible);
+    }
+  }
+
+  toggleProtractor() {
+    const on = this.protractor.toggle();
+    this._flash(on
+      ? "Protractor out \u2014 set the arm, then draw along it"
+      : "Protractor away");
+    this._syncRulerButton();
+    return on;
+  }
+
+  toggleCompass() {
+    const on = this.compass.toggle();
+    this._flash(on ? "Compass out \u2014 drag the pencil round to draw" : "Compass away");
+    this._syncRulerButton();
+    return on;
   }
 
   /** Bold the current text selection, if a text box has the caret. */
@@ -1361,6 +1597,69 @@ function asIds(value) {
 }
 
 window.app = new App(document.querySelector("#app"));
+
+/* ── Companion mode ─────────────────────────
+   Same bundle, loaded over the LAN instead of inside pywebview. */
+// Decided only after the bridge has had its chance to appear — see
+// isCompanion() for why a synchronous check is wrong on both counts.
+isCompanion(bridge.whenReady(2000)).then((companion) => {
+  if (companion) { bootCompanion(window.app); return; }
+  // The laptop is the authority: it holds the document, applies every
+  // command, and re-broadcasts. Python is only a relay — it has no model of
+  // strokes or objects and is not getting one.
+  window.ntbkCompanion = {
+    receive(command) {
+      try { window.app.applyRemoteCommand(command); }
+      catch (error) { console.warn("companion command rejected", error); }
+    },
+  };
+});
+
+async function bootCompanion(app) {
+  document.body.classList.add("is-companion");
+  const client = new CompanionClient();
+  app.companion = client;
+  mountStatus(client);
+
+  if (!client.token) await askToPair(client);
+
+  // Step 1 of the build order is a read-only viewer: it proves transport,
+  // rendering and assets without risking a student's work on a sync path
+  // that has not been exercised yet. Drawing tools are hidden rather than
+  // left live-but-unsynced, because an edit that silently fails to save is
+  // worse than no edit at all.
+  app.setTool("select");
+  document.body.classList.add("is-companion-readonly");
+
+  const load = async () => {
+    try {
+      const document_ = await client.document();
+      if (document_ && document_.format) app.store.replaceDocument(document_);
+    } catch (error) {
+      if (String(error.message) === "unpaired") { await askToPair(client); return load(); }
+      console.warn("companion load failed", error);
+    }
+  };
+  await load();
+
+  client.listen((message) => {
+    if (message.type === "document") { app.store.replaceDocument(message.document); return; }
+    if (message.type === "command") {
+      try { app.applyRemoteCommand(message.command); } catch { /* reported by caller */ }
+    }
+  });
+
+  // iOS treats a backgrounded tab as disposable. Every backgrounding is a
+  // possible death, so re-establish rather than assume the stream survived.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      client.listen((message) => {
+        if (message.type === "document") app.store.replaceDocument(message.document);
+      });
+      load();
+    }
+  });
+}
 
 /** Natural pixel size of an image, once the browser has decoded it. */
 function measureImage(url) {

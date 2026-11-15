@@ -15,10 +15,97 @@
   --accent: #1a6ef5;
   --accent-soft: #e4edfe;
   --canvas: #ffffff;
+  --field: #ffffff;
+  --hover: #e6e9ee;
+  --pressed: #e0e3e8;
+  --strip: #e2e5e9;
+  --thumb: #b4bac4;
+  --thumb-hover: #99a1ae;
+  --tray: #dfe2e7;
+  --danger-soft: #fdf3f2;
+  --surface-sunken: #f6f6f7;
+  --desk-a: #eceef1;
+  --desk-b: #e6e8ec;
   --ribbon-h: 92px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* ── Dark mode ──────────────────────────────
+   Only the CHROME darkens. The page, plots, imported PDF pages and code cells
+   stay light on purpose: they are content, and they are what gets written into
+   an exported PDF. A dark plot would print dark. This is the "dark room, lit
+   page" model — the same choice GoodNotes and Notability make — and it means
+   export needs no special case at all.
+
+   Ink also stays valid: black on white is still black on white. */
+:root[data-theme="dark"] {
+  /* Tells the engine to paint NATIVE widgets dark — select popups, input
+     interiors, the caret, default scrollbars. CSS alone cannot reach those:
+     the platform draws them, and it draws them light unless asked. */
+  color-scheme: dark;
+
+  --bg: #16181c;
+  --panel: #1f2226;
+  --panel-2: #262a2f;
+  --field: #2a2e34;
+  --line: #3c424a;
+  --line-soft: #2e333a;
+  --text: #e6e8ec;
+  --text-dim: #99a1ac;
+  --accent: #4d8dff;      /* lifted: #1a6ef5 is too dark against #16181c */
+  --accent-soft: #1d3255;
+  --desk-a: #131519;
+  --desk-b: #101216;
+  --canvas: #1c1f24;
+  --hover: #30353c;
+  --pressed: #14161a;
+  --strip: #101216;
+  --thumb: #3f454e;
+  --thumb-hover: #4d545f;
+  --tray: #101216;
+  --danger-soft: #2f1d1d;
+  --surface-sunken: #14161a;
+}
+
+/* ── Dark paper ─────────────────────────────
+   Darkening the page alone would hide the work on it: ink and text are mostly
+   near-black, and near-black on a dark page is nothing at all.
+
+   invert(1) hue-rotate(180deg) is the "smart invert" pair — invert flips
+   lightness AND hue, the hue-rotate puts the hue back. So black becomes white
+   and white becomes black, while red stays red and blue stays blue. A plain
+   invert(1) would turn every red annotation cyan.
+
+   Applied to the ink and to the RENDERED CONTENT of text and maths only —
+   never to the object's own chrome, or a selection outline would come out
+   orange, and never to pictures, plots, PDF pages or code, which are meant to
+   look exactly as they were made. */
+:root[data-theme="dark"] .ntbk-ink,
+:root[data-theme="dark"] .ntbk-text-editor {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* NOT the LaTeX box. The rule is: invert what carries a colour SAVED IN THE
+   DOCUMENT (ink styles, a text box's #111111), because that colour was chosen
+   against white paper. Never invert what inherits var(--text), which is
+   already whatever the current theme says — a standalone equation renders
+   light on dark by itself, and inverting it would turn it black again. */
+
+/* The grid colour belongs to the document, not the theme, so it arrives as a
+   light grey that would glare on a dark page. Dim it instead of inverting. */
+/* The editing backdrop is a light scrim so text stays legible over ink. On a
+   dark page it has to be a dark scrim instead, or the inverted (now white)
+   text lands on white and disappears. */
+:root[data-theme="dark"] .ntbk-object[data-type="text"].is-editing {
+  background: rgba(0, 0, 0, .55);
+}
+
+:root[data-theme="dark"] .ntbk-page.is-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, .07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, .07) 1px, transparent 1px);
+}
+
 
 * { box-sizing: border-box; }
 
@@ -54,7 +141,7 @@ html, body {
   display: flex;
   gap: 1px;
   padding: 0 8px;
-  background: #e2e5e9;
+  background: var(--strip);
   border-bottom: 1px solid var(--line);
 }
 
@@ -69,7 +156,7 @@ html, body {
   cursor: pointer;
   border-radius: 3px 3px 0 0;
 }
-.ntbk-ribbon-tab:hover { background: #eaedf1; color: var(--text); }
+.ntbk-ribbon-tab:hover { background: var(--hover); color: var(--text); }
 .ntbk-ribbon-tab.is-active {
   background: var(--panel);
   border-color: var(--line);
@@ -117,7 +204,7 @@ html, body {
   cursor: pointer;
 }
 .ntbk-button:hover:not(:disabled) { background: var(--panel-2); border-color: var(--line-soft); }
-.ntbk-button:active:not(:disabled) { background: #e0e3e8; }
+.ntbk-button:active:not(:disabled) { background: var(--pressed); }
 .ntbk-button.is-active { background: var(--accent-soft); border-color: #a8c6f8; }
 .ntbk-button:disabled { opacity: 0.38; cursor: default; }
 .ntbk-button svg { width: 18px; height: 18px; stroke-width: 1.6; }
@@ -141,7 +228,7 @@ html, body {
   z-index: 1000;
   min-width: 210px;
   padding: 10px;
-  background: #fff;
+  background: var(--field);
   border: 1px solid var(--line);
   border-radius: 5px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
@@ -157,12 +244,550 @@ html, body {
 .ntbk-popover-row output { width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
 .ntbk-popover-hint { font-size: 10px; color: var(--text-dim); border-top: 1px solid var(--line-soft); padding-top: 7px; }
 
+/* A small switch for on/off rows in popovers. The checkbox stays in the DOM
+   and keeps the label/keyboard behaviour; only its painting is replaced. */
+.ntbk-switch { position: relative; display: inline-flex; flex: none; margin-left: auto; }
+.ntbk-switch input {
+  appearance: none;
+  width: 30px;
+  height: 17px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.ntbk-switch input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--field);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  transition: transform .12s;
+}
+.ntbk-switch input:checked { background: var(--accent); border-color: var(--accent); }
+.ntbk-switch input:checked::after { transform: translateX(13px); }
+.ntbk-switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ntbk-popover-row.is-note {
+  margin-top: -4px;
+  margin-bottom: 9px;
+}
+.ntbk-popover-row.is-note small {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+
+/* ── Dark: the greys that were written as literals ──
+   These were hardcoded before there was a second theme, so they cannot follow
+   a token. Overriding them here is deliberate: rewriting ~100 declarations
+   across the file is a bigger, riskier change than stating the dark values
+   once, and the light theme keeps rendering from exactly the same rules it
+   always did. */
+
+/* Canvas scrollbars */
+:root[data-theme="dark"] .ntbk-scrollbar { background: #101216; }
+:root[data-theme="dark"] .ntbk-scrollthumb { background: #3f454e; }
+:root[data-theme="dark"] .ntbk-scrollthumb:hover { background: #4d545f; }
+:root[data-theme="dark"] .ntbk-scrollthumb:active { background: #5c6470; }
+
+/* Native scrollbars inside panels */
+:root[data-theme="dark"] .ntbk-latex-output::-webkit-scrollbar-track,
+:root[data-theme="dark"] .ntbk-shape-list::-webkit-scrollbar-track,
+:root[data-theme="dark"] .ntbk-layer-list::-webkit-scrollbar-track { background: #1b1e23; }
+:root[data-theme="dark"] .ntbk-latex-output::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .ntbk-shape-list::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .ntbk-layer-list::-webkit-scrollbar-thumb {
+  background: #3f454e; border-color: #1b1e23;
+}
+:root[data-theme="dark"] .ntbk-latex-output::-webkit-scrollbar-thumb:hover,
+:root[data-theme="dark"] .ntbk-layer-list::-webkit-scrollbar-thumb:hover { background: #4d545f; }
+
+/* Tab strips */
+:root[data-theme="dark"] .ntbk-ribbon-tabs,
+:root[data-theme="dark"] .ntbk-code-tabs { background: #101216; }
+:root[data-theme="dark"] .ntbk-ribbon-tab:hover,
+:root[data-theme="dark"] .ntbk-code-tab:hover { background: #24282e; }
+
+/* Hover and pressed states on plain chrome */
+:root[data-theme="dark"] .ntbk-panel-toggle:hover,
+:root[data-theme="dark"] .ntbk-popover-mode:hover,
+:root[data-theme="dark"] .ntbk-shape-folder:hover,
+:root[data-theme="dark"] .ntbk-mini:hover { background: #30353c; }
+:root[data-theme="dark"] .ntbk-button:active:not(:disabled),
+:root[data-theme="dark"] #add-page:active { background: #14161a; }
+:root[data-theme="dark"] #add-page { background: #24282e; }
+:root[data-theme="dark"] #add-page:hover { background: #30353c; }
+
+/* Page thumbnails sit on their own tray */
+:root[data-theme="dark"] .ntbk-thumbs { background: #101216; }
+
+/* Dim placeholder text */
+:root[data-theme="dark"] .ntbk-code-command::placeholder,
+:root[data-theme="dark"] .ntbk-context-note { color: #767d88; }
+
+
+/* The strip that opens the object tree, and the form controls in the panels */
+:root[data-theme="dark"] .ntbk-panel-toggle { background: #1b1e23; }
+:root[data-theme="dark"] .ntbk-panel-sort,
+:root[data-theme="dark"] .ntbk-panel-filter input,
+:root[data-theme="dark"] #status-page-input,
+:root[data-theme="dark"] .ntbk-insp-row input,
+:root[data-theme="dark"] .ntbk-insp-row select {
+  background: var(--field);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+
+/* The inspector was a white panel whose TEXT follows the theme, so in dark
+   mode it was light-grey-on-white — legible in neither. Same failure as the
+   LaTeX box, mirrored: there the text inverted and the background did not,
+   here the background stayed put and the text moved. */
+:root[data-theme="dark"] .ntbk-inspector { background: var(--panel-2); }
+:root[data-theme="dark"] .ntbk-insp-select,
+:root[data-theme="dark"] .ntbk-insp-input,
+:root[data-theme="dark"] .ntbk-insp-area {
+  background: var(--field);
+  color: var(--text);
+}
+:root[data-theme="dark"] .ntbk-insp-preview { background: var(--surface-sunken); }
+
+
+/* ── Dark: light surfaces vs theme-coloured text ──
+   The rule these all broke: an element that keeps a LIGHT background in dark
+   mode must also keep DARK text. Two of them went one way and one the other,
+   which is why they all looked different kinds of broken.
+
+   Where the surface is chrome, darken the surface — the text already follows
+   the theme and becomes readable for free. Export is unaffected because it
+   forces the light theme for the length of the render. */
+:root[data-theme="dark"] .ntbk-latex:hover,
+:root[data-theme="dark"] .ntbk-latex.is-selected,
+:root[data-theme="dark"] .ntbk-latex[data-tab="source"] { background: rgba(26, 29, 34, .94); }
+:root[data-theme="dark"] .ntbk-graph-edit { background: rgba(26, 29, 34, .94); }
+
+/* Plots and code cells get the same smart invert as the ink.
+   Both draw their own colours from JavaScript — JSXGraph paints the board and
+   axes, CodeMirror paints the syntax highlighting — so there is no stylesheet
+   to retheme and no library config to fight. invert + hue-rotate flips the
+   white surface to near-black while leaving a blue curve blue and a red
+   string red, which is exactly what re-theming both libraries by hand would
+   have been trying to achieve.
+
+   Safe for export precisely because renderPageToPng forces the light theme
+   for the length of the render, so the filter is never active when the page
+   is captured. Without that, this would print an inverted plot. */
+:root[data-theme="dark"] .ntbk-graph,
+:root[data-theme="dark"] .ntbk-ge-board,
+:root[data-theme="dark"] .ntbk-code-body {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Anything INSIDE an inverted element has to be authored for a LIGHT
+   background, because the filter is the last thing applied. CodeMirror gives
+   keywords and strings explicit colours (which invert correctly), but plain
+   identifiers just inherit `color` — and that is var(--text), already near
+   white in dark mode, so inverting made them near black and invisible.
+
+   Pinning the inherited colour dark here means the filter turns it light,
+   which is the same trick the ink relies on. */
+:root[data-theme="dark"] .ntbk-code-body,
+:root[data-theme="dark"] .ntbk-code-body .cm-editor,
+:root[data-theme="dark"] .ntbk-code-body .cm-content,
+:root[data-theme="dark"] .ntbk-code-body .cm-line {
+  color: #1c1f24;
+}
+
+
+/* ── Function facts, in the inspector's Details tab ── */
+.ntbk-insp-facts-head {
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 9px 4px; padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 10px; color: var(--text-dim);
+}
+.ntbk-insp-facts-head span { flex: 1; }
+.ntbk-insp-fn {
+  margin: 0 9px 6px; padding: 6px 7px;
+  background: var(--surface-sunken); border-radius: 4px;
+}
+.ntbk-insp-fn-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; margin-bottom: 4px;
+  font-family: var(--mono);
+}
+.ntbk-insp-fn-title .ntbk-insp-dot {
+  width: 9px; height: 9px; border-radius: 2px; flex: none;
+}
+.ntbk-insp-fn-row {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 10px; line-height: 1.5;
+}
+.ntbk-insp-fn-row span { color: var(--text-dim); flex: none; min-width: 84px; }
+/* Coordinates wrap rather than stretching the panel — a function can easily
+   have more roots than fit on one line. */
+.ntbk-insp-fn-row b {
+  font-weight: 500; font-family: var(--mono);
+  word-break: break-word; text-align: right; margin-left: auto;
+}
+.ntbk-insp-fn-total {
+  text-align: center; font-size: 10px; color: var(--text-dim);
+  background: none; border: 1px dashed var(--line-soft);
+}
+
+
+/* ── Graph capture popover ────────────────── */
+.ntbk-capture { width: 230px; padding-bottom: 6px; }
+.ntbk-capture-input {
+  width: calc(100% - 16px); margin: 4px 8px 6px; padding: 4px 6px;
+  font: inherit; font-size: 12px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--field); color: var(--text);
+}
+.ntbk-capture-input:focus { border-color: var(--accent); outline: none; }
+.ntbk-capture-hits { display: flex; flex-direction: column; gap: 2px; padding: 0 6px; }
+.ntbk-capture-hits .ntbk-context-btn { text-align: left; width: 100%; }
+.ntbk-capture-new { font-weight: 600; color: var(--accent); }
+.ntbk-capture .ntbk-context-note { padding: 4px 8px; }
+
+
+/* ── Knowledge graph: docked panel ────────── */
+.ntbk-graph-panel { border-top: 1px solid var(--line-soft); }
+.ntbk-graph-head { cursor: default; }
+.ntbk-graph-fold {
+  display: flex; align-items: center; gap: 4px; flex: 1;
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; color: var(--text); text-align: left;
+}
+.ntbk-graph-fold svg { width: 12px; height: 12px; }
+.ntbk-graph-count { font-size: 10px; color: var(--text-dim); }
+.ntbk-graph-panel.is-collapsed .ntbk-graph-body { display: none; }
+.ntbk-graph-search {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 11px;
+  padding: 3px 6px; border: 1px solid var(--line-soft);
+  border-radius: 4px; background: var(--field); color: var(--text);
+}
+.ntbk-graph-search:focus { border-color: var(--accent); outline: none; }
+.ntbk-graph-results { max-height: 168px; overflow-y: auto; margin-bottom: 4px; }
+.ntbk-graph-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 3px 8px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--text); text-align: left;
+}
+.ntbk-graph-row:hover { background: var(--hover); }
+.ntbk-graph-row.is-current { background: var(--accent-soft); font-weight: 600; }
+.ntbk-graph-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntbk-graph-places {
+  flex: none; font-size: 9px; color: var(--text-dim);
+  background: var(--surface-sunken); border-radius: 8px; padding: 0 5px;
+}
+.ntbk-graph-empty { font-size: 10px; color: var(--text-dim); padding: 5px 8px; line-height: 1.4; }
+.ntbk-graph-detail { border-top: 1px solid var(--line-soft); padding-top: 5px; }
+.ntbk-graph-detail-head { display: flex; gap: 4px; align-items: center; padding: 0 8px 5px; }
+.ntbk-graph-name {
+  flex: 1; min-width: 0; font: inherit; font-size: 11px; font-weight: 600;
+  padding: 2px 5px; border: 1px solid transparent; border-radius: 3px;
+  background: none; color: var(--text);
+}
+.ntbk-graph-name:hover { border-color: var(--line-soft); background: var(--field); }
+.ntbk-graph-name:focus { border-color: var(--accent); background: var(--field); outline: none; }
+.ntbk-graph-x {
+  flex: none; border: 0; background: none; cursor: pointer;
+  color: var(--text-dim); font: inherit; font-size: 12px; padding: 1px 4px;
+}
+.ntbk-graph-x:hover { color: #c0392b; }
+.ntbk-graph-x svg { width: 12px; height: 12px; }
+.ntbk-graph-section-head {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-dim); padding: 4px 8px 2px;
+}
+.ntbk-graph-line { display: flex; align-items: center; padding: 0 6px 0 8px; }
+.ntbk-graph-go {
+  flex: 1; text-align: left; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--accent); padding: 2px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-graph-go:hover { text-decoration: underline; }
+.ntbk-graph-go.is-muted { color: var(--text-dim); font-style: italic; }
+.ntbk-graph-link { display: flex; gap: 4px; padding: 6px 8px 2px; }
+.ntbk-graph-link select {
+  flex: 1; min-width: 0; font: inherit; font-size: 10px;
+  background: var(--field); color: var(--text);
+  border: 1px solid var(--line-soft); border-radius: 3px;
+}
+.ntbk-graph-open { width: calc(100% - 16px); margin: 6px 8px 8px; }
+
+/* ── Knowledge graph: canvas overlay ──────── */
+/* Inside .ntbk-chrome, which is pointer-events:none — these can never take a
+   pointer event away from the pen. */
+.ntbk-graph-box {
+  fill: var(--accent); fill-opacity: .05;
+  stroke: var(--accent); stroke-opacity: .30; stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.ntbk-graph-box.is-current {
+  fill-opacity: .13; stroke-opacity: .95; stroke-width: 2; stroke-dasharray: none;
+}
+/* Faded rather than covered by a scrim: dimming the page itself would fight
+   the legibility of the ink, which is the thing being looked for. */
+.ntbk-graph-box.is-orphaned { stroke: var(--text-dim); stroke-opacity: .35; fill-opacity: 0; }
+.ntbk-graph-box.is-flash { animation: ntbk-graph-flash 1.3s ease-out; }
+@keyframes ntbk-graph-flash {
+  0%, 100% { fill-opacity: .13; }
+  25% { fill-opacity: .42; }
+  60% { fill-opacity: .16; }
+}
+.ntbk-graph-edge { stroke: var(--accent); stroke-opacity: .5; stroke-width: 1.5; }
+.ntbk-graph-edge.is-prerequisite { stroke-dasharray: 6 4; stroke-opacity: .75; }
+
+/* Specific enough to beat `.ntbk-overlay > *`, which sets pointer-events:auto
+   for that layer's children and, at equal specificity, wins by coming later
+   in the file. Without this the stub host is a full-canvas pointer trap: it
+   covers the page with inset:0 and would swallow every pen event. Only the
+   stubs themselves take pointers. */
+.ntbk-overlay > .ntbk-graph-stubs {
+  position: absolute; inset: 0; pointer-events: none;
+}
+.ntbk-graph-stub {
+  position: absolute; pointer-events: auto; cursor: pointer;
+  font: inherit; font-size: 10px; white-space: nowrap;
+  padding: 2px 6px; border-radius: 10px;
+  border: 1px solid var(--accent); background: var(--field); color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
+}
+.ntbk-graph-stub:hover { background: var(--accent); color: #fff; }
+.ntbk-graph-stub.is-prerequisite { border-style: dashed; }
+
+
+/* ── Full graph view ──────────────────────── */
+/* A flex sibling of the canvas inside #canvas-area, so opening it makes the
+   page narrower instead of hiding it. That is the point: you want to see the
+   region light up on the canvas while you click around the graph. */
+.ntbk-fullgraph {
+  position: relative;
+  flex: 0 0 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+.ntbk-fullgraph-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+.ntbk-fullgraph-bar strong { flex: 1; }
+.ntbk-fullgraph-tools {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-fullgraph-depth { display: flex; align-items: center; gap: 3px; flex: 1; }
+.ntbk-fullgraph-depth label { font-size: 10px; color: var(--text-dim); margin-right: 2px; }
+.ntbk-fullgraph-depth button {
+  font: inherit; font-size: 10px; padding: 2px 6px; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: 3px;
+  background: var(--field); color: var(--text);
+}
+.ntbk-fullgraph-depth button.is-active {
+  background: var(--accent-soft); border-color: var(--accent); font-weight: 600;
+}
+/* A faint dot grid, drawn from the border token, so the graph reads as part
+   of the same app as the ruled canvas next to it. */
+.ntbk-fullgraph-canvas {
+  flex: 1; min-height: 0;
+  background-color: var(--desk-b);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -11px -11px;
+  opacity: 1;
+}
+.ntbk-fullgraph-canvas > * { background: transparent; }
+.ntbk-fullgraph-tools .ntbk-mini.is-active {
+  background: var(--accent-soft); border-color: var(--accent); font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ntbk-fullgraph * { transition: none !important; animation: none !important; }
+}
+.ntbk-fullgraph-hint {
+  padding: 4px 10px; font-size: 9px; color: var(--text-dim);
+  border-top: 1px solid var(--line-soft); text-align: center;
+}
+.ntbk-fullgraph-loading {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 12px; pointer-events: none;
+}
+
+
+/* ── Note editor, inside the graph panel ──── */
+.ntbk-fullgraph-canvas { position: relative; }
+.ntbk-graph-note {
+  position: absolute; z-index: 5; width: 210px;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 7px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+}
+.ntbk-graph-note-head {
+  font-size: 10px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-graph-note textarea {
+  width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical;
+  font: inherit; font-size: 11px; line-height: 1.4;
+  padding: 5px 6px; border-radius: 4px;
+  border: 1px solid var(--line-soft); background: var(--field); color: var(--text);
+}
+.ntbk-graph-note textarea:focus { border-color: var(--accent); outline: none; }
+.ntbk-graph-note-foot { display: flex; align-items: center; gap: 6px; }
+.ntbk-graph-note-foot span { flex: 1; font-size: 9px; color: var(--text-dim); }
+.ntbk-graph-note-del { color: #c0392b; border-color: #c0392b44; }
+.ntbk-graph-note-del:hover { background: var(--danger-soft); }
+/* A destructive action on a layer row stays quiet until you are on the row */
+.ntbk-layer-row [data-del] { opacity: 0; }
+.ntbk-layer-row:hover [data-del] { opacity: 1; }
+.ntbk-layer-row [data-del]:hover { color: #c0392b; }
+.ntbk-layer-row [data-del]:disabled { opacity: 0 !important; cursor: default; }
+
+
+/* ── Companion mode ───────────────────────── */
+.ntbk-companion-dialog {
+  position: fixed; top: 96px; left: 50%; transform: translateX(-50%);
+  z-index: 500; width: 340px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .34);
+}
+.ntbk-companion-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-companion-head strong { flex: 1; font-size: 12px; }
+.ntbk-companion-body { padding: 10px 12px 12px; font-size: 11px; line-height: 1.5; }
+.ntbk-companion-body p { margin: 0 0 6px; color: var(--text-dim); }
+.ntbk-companion-url {
+  font-family: var(--mono); font-size: 13px; color: var(--text);
+  background: var(--field); border: 1px solid var(--line-soft);
+  border-radius: 4px; padding: 6px 8px; margin-bottom: 10px;
+  user-select: all; word-break: break-all;
+}
+.ntbk-companion-code {
+  font-family: var(--mono); font-size: 26px; letter-spacing: .18em;
+  text-align: center; color: var(--accent); font-weight: 600;
+  background: var(--accent-soft); border-radius: 6px; padding: 8px; margin-bottom: 10px;
+}
+.ntbk-companion-note { font-size: 10px !important; }
+.ntbk-companion-bad { color: #c0392b !important; }
+
+/* ── On the tablet ────────────────────────── */
+.ntbk-pair {
+  position: fixed; inset: 0; z-index: 900; display: flex;
+  align-items: center; justify-content: center; background: var(--bg);
+}
+.ntbk-pair-card { width: min(320px, 88vw); text-align: center; }
+.ntbk-pair-card h1 { font-size: 22px; margin-bottom: 6px; }
+.ntbk-pair-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }
+.ntbk-pair-code {
+  width: 100%; box-sizing: border-box; text-align: center;
+  font-family: var(--mono); font-size: 30px; letter-spacing: .2em;
+  padding: 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--field); color: var(--text); margin-bottom: 10px;
+}
+/* Fingers, not a mouse — 34px desktop targets are too small here. */
+.ntbk-pair-go {
+  width: 100%; padding: 14px; font: inherit; font-size: 15px;
+  border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+}
+.ntbk-pair-error { margin-top: 10px; font-size: 12px; color: #c0392b; min-height: 16px; }
+
+.ntbk-companion-status {
+  position: fixed; top: 8px; right: 8px; z-index: 800;
+  font-size: 11px; padding: 5px 10px; border-radius: 12px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  transition: opacity .4s;
+}
+.ntbk-companion-status[data-state="connected"] { border-color: #2e7d32; }
+.ntbk-companion-status[data-state="connecting"] { border-color: #f57c00; }
+.ntbk-companion-status[data-state="offline"] { border-color: #c0392b; }
+.ntbk-companion-status.is-faded { opacity: .35; }
+
+/* Read-only while step 1 of the build order is all that exists. Hidden, not
+   disabled-looking: an edit that silently fails to sync is worse than no
+   edit, so the tools are not offered at all. */
+body.is-companion-readonly [data-tool="pen"],
+body.is-companion-readonly [data-tool="highlighter"],
+body.is-companion-readonly [data-tool="eraser"],
+body.is-companion-readonly [data-tool="shape"] { display: none; }
+body.is-companion .ntbk-viewport { touch-action: none; }
+body.is-companion { overscroll-behavior: none; }
+
+
+/* ── Cursor calibration popover ───────────── */
+.ntbk-cursor-menu { width: 268px; }
+.ntbk-cursor-menu .ntbk-popover-modes { margin-bottom: 8px; }
+.ntbk-cursor-menu .ntbk-popover-row label { width: 16px; }
+
+
+/* ── Video ─────────────────────────────────── */
+.ntbk-video {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: #000; border: 1px solid var(--line); border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+}
+/* The title bar is the part you drag, and it stays outside the player so the
+   box can still be moved while a video is taking every click inside it. */
+.ntbk-video-head {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 6px;
+  padding: 0 4px 0 8px; cursor: move; user-select: none;
+  background: var(--panel); color: var(--text); font-size: 11px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ntbk-video-site { font-weight: 600; flex: none; }
+.ntbk-video-url {
+  flex: 1; min-width: 0; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ntbk-video-btn {
+  flex: none; width: 22px; height: 20px; padding: 0; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: 3px;
+  background: var(--field); color: var(--text); font-size: 11px; line-height: 1;
+}
+.ntbk-video-btn:hover { background: var(--hover); }
+.ntbk-video-body { flex: 1; min-height: 0; position: relative; background: #000; }
+.ntbk-video-cover {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  background: #111 center / cover no-repeat; color: #e6e8ec; font-size: 12px;
+}
+.ntbk-video-cover.is-bad { color: #ff9a8f; }
+.ntbk-video-play {
+  width: 64px; height: 44px; border: 0; border-radius: 12px; cursor: pointer;
+  background: rgba(20, 20, 20, .82); color: #fff; font-size: 20px;
+  padding-left: 4px;
+}
+.ntbk-video-play:hover { background: #e53935; }
+.ntbk-video-note {
+  padding: 3px 8px; border-radius: 3px; background: rgba(0, 0, 0, .7); font-size: 11px;
+}
+.ntbk-video-player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+.ntbk-video-menu { width: 280px; }
+.ntbk-video-menu .ntbk-capture-input { width: 100%; margin: 0 0 6px; box-sizing: border-box; }
+.ntbk-popover-hint.is-bad { color: #c0392b; }
+
 /* ── Canvas ────────────────────────────────── */
 .ntbk-viewport {
   position: relative;
   overflow: hidden;
   background:
-    repeating-conic-gradient(#eceef1 0% 25%, #e6e8ec 0% 50%) 0 0 / 24px 24px;
+    repeating-conic-gradient(var(--desk-a) 0% 25%, var(--desk-b) 0% 50%) 0 0 / 24px 24px;
   touch-action: none;
 }
 
@@ -233,7 +858,7 @@ html, body {
   width: 11px;
   height: 11px;
   margin: -6px 0 0 -6px;
-  background: #fff;
+  background: var(--field);
   border: 1px solid var(--accent);
   border-radius: 2px;
   pointer-events: auto;
@@ -247,7 +872,7 @@ html, body {
    ScrollBars.js. Each axis drags independently. */
 .ntbk-scrollbar {
   position: absolute;
-  background: #e9ebef;
+  background: var(--strip);
   border: solid var(--line-soft);
   z-index: 60;
 }
@@ -268,7 +893,7 @@ html, body {
 
 .ntbk-scrollthumb {
   position: absolute;
-  background: #b4bac4;
+  background: var(--thumb);
   border-radius: 6px;
 }
 .ntbk-scrollbar-vertical .ntbk-scrollthumb {
@@ -283,7 +908,7 @@ html, body {
   left: 0;
   min-width: 24px;
 }
-.ntbk-scrollthumb:hover { background: #99a1ae; }
+.ntbk-scrollthumb:hover { background: var(--thumb-hover); }
 .ntbk-scrollthumb:active { background: #7d8796; }
 
 /* Eraser ring — this is the cursor, so the system one is hidden */
@@ -305,7 +930,7 @@ html, body {
   font-size: 11px;
   cursor: pointer;
 }
-.ntbk-popover-mode:hover { background: #e6e9ee; }
+.ntbk-popover-mode:hover { background: var(--hover); }
 .ntbk-popover-mode.is-active {
   background: var(--accent-soft);
   border-color: #a8c6f8;
@@ -334,8 +959,8 @@ html, body {
   color: var(--text);
   cursor: pointer;
 }
-#add-page:hover { background: #fff; border-color: var(--accent); color: var(--accent); }
-#add-page:active { background: #e0e3e8; }
+#add-page:hover { background: var(--field); border-color: var(--accent); color: var(--accent); }
+#add-page:active { background: var(--pressed); }
 
 /* ── Objects ───────────────────────────────── */
 .ntbk-object {
@@ -382,7 +1007,7 @@ html, body {
 }
 .ntbk-tab:hover { background: var(--panel-2); }
 .ntbk-tab.is-active {
-  background: #fff;
+  background: var(--field);
   border-color: var(--line-soft);
   color: var(--text);
   font-weight: 600;
@@ -402,7 +1027,7 @@ html, body {
   border: none;
   outline: none;
   resize: none;
-  background: #fff;
+  background: var(--field);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
@@ -439,7 +1064,7 @@ html, body {
 }
 .ntbk-image.is-missing {
   border: 1px dashed #c0392b;
-  background: #fdf3f2;
+  background: var(--danger-soft);
 }
 .ntbk-image.is-missing::after {
   content: attr(data-missing);
@@ -498,19 +1123,19 @@ html, body {
 .ntbk-range {
   flex: 1; padding: 3px 7px;
   border: 1px solid var(--line); border-radius: 3px;
-  font: inherit; font-size: 12px; background: #fff;
+  font: inherit; font-size: 12px; background: var(--field);
 }
 .ntbk-mini {
   padding: 3px 9px; border: 1px solid var(--line); border-radius: 3px;
   background: var(--panel-2); font: inherit; font-size: 11px; cursor: pointer;
 }
-.ntbk-mini:hover { background: #fff; }
+.ntbk-mini:hover { background: var(--field); }
 .ntbk-count { font-size: 11px; color: var(--text-dim); min-width: 74px; text-align: right; }
 
 .ntbk-thumbs {
   flex: 1; overflow-y: auto;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-  gap: 10px; padding: 12px; background: #dfe2e7;
+  gap: 10px; padding: 12px; background: var(--tray);
 }
 .ntbk-thumb {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -534,7 +1159,7 @@ html, body {
 .ntbk-modal-foot label { font-size: 11px; color: var(--text-dim); }
 .ntbk-placement {
   flex: 1; padding: 3px 6px; font: inherit; font-size: 12px;
-  border: 1px solid var(--line); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--field);
 }
 .ntbk-primary {
   padding: 5px 16px; border: 1px solid var(--accent); border-radius: 3px;
@@ -548,6 +1173,9 @@ html, body {
 /* Inert: the plot is never interactive on the canvas, so no gesture over it
    is ambiguous. Editing happens in the panel. */
 .ntbk-graph-board { pointer-events: none; user-select: none; }
+/* The picture a plot becomes once it has been drawn. Sized by the holder, so
+   the stretch used while a resize handle is dragged works on it unchanged. */
+.ntbk-graph-still { display: block; width: 100%; height: 100%; }
 
 /* Appears on hover or when selected — the plot itself stays uncluttered */
 .ntbk-graph-edit {
@@ -605,9 +1233,9 @@ html, body {
 .ntbk-ge-y { color: var(--text-dim); font-size: 11px; }
 .ntbk-ge-row input {
   flex: 1; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px;
-  font-family: var(--mono); font-size: 12px; background: #fff;
+  font-family: var(--mono); font-size: 12px; background: var(--field);
 }
-.ntbk-ge-row.is-bad input { border-color: #c0392b; background: #fdf3f2; }
+.ntbk-ge-row.is-bad input { border-color: #c0392b; background: var(--danger-soft); }
 .ntbk-ge-del {
   border: none; background: transparent; color: var(--text-dim);
   cursor: pointer; font-size: 11px; padding: 2px 4px;
@@ -626,14 +1254,14 @@ html, body {
 }
 .ntbk-ge-select {
   flex: 1; padding: 3px 6px; font: inherit; font-size: 12px;
-  border: 1px solid var(--line); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--field);
 }
 .ntbk-ge-data { padding: 2px; }
 .ntbk-ge-data label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
 .ntbk-ge-data textarea {
   width: 100%; resize: vertical; padding: 4px 6px;
   border: 1px solid var(--line); border-radius: 3px;
-  font-family: var(--mono); font-size: 11px; background: #fff;
+  font-family: var(--mono); font-size: 11px; background: var(--field);
 }
 .ntbk-popover-mode:disabled { opacity: .45; cursor: default; }
 
@@ -648,20 +1276,20 @@ html, body {
 .ntbk-ge-list::-webkit-scrollbar-track,
 .ntbk-thumbs::-webkit-scrollbar-track,
 .ntbk-latex-output::-webkit-scrollbar-track {
-  background: #e9ebef;
+  background: var(--strip);
   border-left: 1px solid var(--line-soft);
 }
 .ntbk-ge-list::-webkit-scrollbar-thumb,
 .ntbk-thumbs::-webkit-scrollbar-thumb,
 .ntbk-latex-output::-webkit-scrollbar-thumb {
-  background: #b4bac4;
+  background: var(--thumb);
   border-radius: 6px;
   border: 2px solid #e9ebef;
 }
 .ntbk-ge-list::-webkit-scrollbar-thumb:hover,
 .ntbk-thumbs::-webkit-scrollbar-thumb:hover,
 .ntbk-latex-output::-webkit-scrollbar-thumb:hover {
-  background: #99a1ae;
+  background: var(--thumb-hover);
 }
 
 /* ── Code cell ─────────────────────────────── */
@@ -690,8 +1318,8 @@ html, body {
   background: transparent; font-family: var(--mono); font-size: 12px;
   font-weight: 600; color: var(--text);
 }
-.ntbk-code-name:hover { border-color: var(--line-soft); background: #fff; }
-.ntbk-code-name:focus { border-color: var(--accent); background: #fff; outline: none; }
+.ntbk-code-name:hover { border-color: var(--line-soft); background: var(--field); }
+.ntbk-code-name:focus { border-color: var(--accent); background: var(--field); outline: none; }
 .ntbk-code-lang { flex: 1; font-size: 10px; color: var(--text-dim); }
 .ntbk-code-run {
   padding: 3px 12px; border: 1px solid var(--accent); border-radius: 3px;
@@ -702,10 +1330,10 @@ html, body {
 .ntbk-code-run:disabled { opacity: .55; cursor: default; }
 .ntbk-code-stop {
   padding: 3px 11px; border: 1px solid #c0392b; border-radius: 3px;
-  background: #fff; color: #c0392b; font: inherit; font-size: 11px;
+  background: var(--field); color: #c0392b; font: inherit; font-size: 11px;
   font-weight: 600; cursor: pointer;
 }
-.ntbk-code-stop:hover { background: #fdf3f2; }
+.ntbk-code-stop:hover { background: var(--danger-soft); }
 
 .ntbk-code-cmd {
   display: flex; align-items: center; gap: 7px;
@@ -714,7 +1342,7 @@ html, body {
 .ntbk-code-cmd label { font-size: 10px; color: var(--text-dim); }
 .ntbk-code-command {
   flex: 1; padding: 2px 7px;
-  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: var(--field);
   font-family: var(--mono); font-size: 11px; color: var(--text);
 }
 .ntbk-code-command::placeholder { color: #a6acb6; }
@@ -722,7 +1350,7 @@ html, body {
 
 .ntbk-code-tabs {
   display: flex; gap: 1px; padding: 4px 6px 0;
-  background: #e2e5e9; border-bottom: 1px solid var(--line);
+  background: var(--strip); border-bottom: 1px solid var(--line);
   overflow-x: auto;
 }
 .ntbk-code-tab {
@@ -731,9 +1359,9 @@ html, body {
   font: inherit; font-size: 11px; color: var(--text-dim);
   cursor: pointer; border-radius: 3px 3px 0 0; white-space: nowrap;
 }
-.ntbk-code-tab:hover { background: #eaedf1; color: var(--text); }
+.ntbk-code-tab:hover { background: var(--hover); color: var(--text); }
 .ntbk-code-tab.is-active {
-  background: #fff; border-color: var(--line);
+  background: var(--field); border-color: var(--line);
   color: var(--text); font-weight: 600; margin-bottom: -1px;
 }
 
@@ -757,7 +1385,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
   z-index: 3000;
   min-width: 232px;
   padding: 7px;
-  background: #fff;
+  background: var(--field);
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.2);
@@ -794,9 +1422,9 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-context-note { font-size: 10px; color: #a6acb6; font-style: italic; }
 .ntbk-context-danger { margin-bottom: 0; }
 .ntbk-context-danger .ntbk-context-btn {
-  border-color: #e3b8b4; color: #b00020; background: #fff;
+  border-color: #e3b8b4; color: #b00020; background: var(--field);
 }
-.ntbk-context-danger .ntbk-context-btn:hover { background: #fdf3f2; border-color: #c0392b; }
+.ntbk-context-danger .ntbk-context-btn:hover { background: var(--danger-soft); border-color: #c0392b; }
 
 /* ── Object panel ──────────────────────────── */
 .ntbk-panel {
@@ -813,10 +1441,10 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-panel-toggle {
   flex: none; width: 29px;
   border: none; border-right: 1px solid var(--line-soft);
-  background: #e6e9ee; color: var(--text-dim); cursor: pointer; padding: 6px 0;
+  background: var(--hover); color: var(--text-dim); cursor: pointer; padding: 6px 0;
   align-self: stretch;
 }
-.ntbk-panel-toggle:hover { background: #dde1e7; color: var(--text); }
+.ntbk-panel-toggle:hover { background: var(--hover); color: var(--text); }
 .ntbk-panel-toggle svg { width: 15px; height: 15px; }
 
 .ntbk-panel-body {
@@ -829,7 +1457,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-panel-head strong { flex: 1; font-size: 11px; }
 .ntbk-panel-sort {
   font: inherit; font-size: 10px; padding: 1px 3px;
-  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: var(--field);
 }
 /* ── Inspector: right-click a tree row ── */
 /* The printer's unreachable margin, shown so nothing important is drawn
@@ -843,7 +1471,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 
 .ntbk-inspector {
   position: fixed; z-index: 120; width: 264px;
-  background: #fff; border: 1px solid var(--line);
+  background: var(--field); border: 1px solid var(--line);
   border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, .18);
   font-size: 11px; overflow: hidden;
 }
@@ -913,12 +1541,12 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-insp-select {
   margin-left: auto; max-width: 118px; font: inherit; font-size: 11px;
   padding: 1px 3px; border: 1px solid var(--line-soft);
-  border-radius: 3px; background: #fff;
+  border-radius: 3px; background: var(--field);
 }
 .ntbk-insp-input {
   margin-left: auto; width: 108px; font: inherit; font-size: 11px;
   padding: 1px 4px; border: 1px solid var(--line-soft);
-  border-radius: 3px; background: #fff; text-align: right;
+  border-radius: 3px; background: var(--field); text-align: right;
 }
 .ntbk-insp-input:focus { border-color: var(--accent); outline: none; text-align: left; }
 .ntbk-insp-area {
@@ -926,7 +1554,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
   min-height: 62px; max-height: 150px; resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
   padding: 4px 5px; border: 1px solid var(--line-soft);
-  border-radius: 4px; background: #fff;
+  border-radius: 4px; background: var(--field);
 }
 .ntbk-insp-area:focus { border-color: var(--accent); outline: none; }
 .ntbk-insp-swatches {
@@ -938,7 +1566,8 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-insp-button {
   display: block; width: calc(100% - 18px); margin: 6px 9px;
   padding: 4px 6px; font: inherit; font-size: 10px; cursor: pointer;
-  border: 1px solid var(--line-soft); border-radius: 4px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 4px; background: var(--field);
+  color: var(--text);
 }
 .ntbk-insp-button:hover { background: var(--hover); }
 .ntbk-insp-block { padding: 4px 9px; }
@@ -977,7 +1606,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 
 .ntbk-context-select {
   flex: 1; min-width: 0; font: inherit; font-size: 11px; padding: 2px 4px;
-  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: var(--field);
 }
 .ntbk-panel-filter {
   display: flex; align-items: center; gap: 5px;
@@ -986,7 +1615,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
 .ntbk-panel-filter svg { width: 12px; height: 12px; color: var(--text-dim); }
 .ntbk-panel-filter input {
   flex: 1; min-width: 0; padding: 2px 6px; font: inherit; font-size: 11px;
-  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: var(--field);
 }
 .ntbk-panel-tree { flex: 1; overflow-y: auto; padding: 4px 0; }
 .ntbk-panel-empty { padding: 14px 10px; font-size: 10px; color: var(--text-dim); }
@@ -1001,7 +1630,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
   display: flex; align-items: center; gap: 6px;
   padding: 3px 8px 3px 14px; cursor: default; font-size: 11px;
 }
-.ntbk-tree-row:hover { background: #e3e7ed; }
+.ntbk-tree-row:hover { background: var(--hover); }
 .ntbk-tree-row.is-selected { background: var(--accent-soft); }
 .ntbk-tree-row.is-dim { opacity: .5; }
 .ntbk-tree-icon { width: 13px; height: 13px; flex: none; color: var(--text-dim); }
@@ -1009,7 +1638,7 @@ iframe.ntbk-code-artefact { width: 100%; height: 100%; }
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ntbk-tree-name[contenteditable="true"] {
-  background: #fff; outline: 1px solid var(--accent); border-radius: 2px;
+  background: var(--field); outline: 1px solid var(--accent); border-radius: 2px;
   padding: 0 2px; text-overflow: clip;
 }
 .ntbk-tree-btn {
@@ -1032,7 +1661,7 @@ path.is-peeked { outline: none; filter: drop-shadow(0 0 3px var(--accent)); }
 .ntbk-layer-list::-webkit-scrollbar { width: 10px; }
 .ntbk-panel-tree::-webkit-scrollbar-thumb,
 .ntbk-layer-list::-webkit-scrollbar-thumb {
-  background: #b4bac4; border-radius: 6px; border: 2px solid var(--panel);
+  background: var(--thumb); border-radius: 6px; border: 2px solid var(--panel);
 }
 
 /* ── Status bar ────────────────────────────── */
@@ -1130,7 +1759,7 @@ path.is-peeked { outline: none; filter: drop-shadow(0 0 3px var(--accent)); }
 /* A number field, for the values where dragging is pointless */
 .ntbk-number {
   width: 62px; font: inherit; font-size: 11px; padding: 1px 4px;
-  border: 1px solid var(--line-soft); border-radius: 3px; background: #fff;
+  border: 1px solid var(--line-soft); border-radius: 3px; background: var(--field);
   text-align: right;
 }
 .ntbk-number:focus { border-color: var(--accent); outline: none; }
@@ -1140,11 +1769,40 @@ path.is-peeked { outline: none; filter: drop-shadow(0 0 3px var(--accent)); }
 
 
 /* Search across your saved shapes, once there are enough to be worth it */
-.ntbk-shape-search { margin: 4px 0 5px; }
+.ntbk-shape-search { margin: 4px 0 5px; display: flex; gap: 4px; align-items: center; }
+.ntbk-shape-search input { flex: 1; min-width: 0; }
+.ntbk-shape-folder {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ntbk-shape-folder:hover { background: var(--hover); color: var(--text); }
+.ntbk-shape-folder svg { width: 13px; height: 13px; }
+/* The folder the list came from. Truncates from the LEFT, because the tail of
+   a path is the part that identifies it. */
+.ntbk-shape-where {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin: -2px 0 5px;
+  direction: rtl;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .ntbk-shape-search input {
-  width: 100%; box-sizing: border-box; font: inherit; font-size: 11px;
+  box-sizing: border-box; font: inherit; font-size: 11px;
   padding: 3px 6px; border: 1px solid var(--line-soft);
-  border-radius: 4px; background: #fff;
+  border-radius: 4px; background: var(--field);
 }
 .ntbk-shape-search input:focus { border-color: var(--accent); outline: none; }
 /* A long library scrolls rather than pushing the menu off the screen.
@@ -1169,7 +1827,206 @@ path.is-peeked { outline: none; filter: drop-shadow(0 0 3px var(--accent)); }
   border: 1px solid transparent; border-radius: 3px; background: transparent;
   color: inherit; cursor: text;
 }
-.ntbk-readout:hover { border-color: var(--line-soft); background: #fff; }
+.ntbk-readout:hover { border-color: var(--line-soft); background: var(--field); }
 .ntbk-readout:focus {
-  border-color: var(--accent); background: #fff; outline: none; text-align: left;
+  border-color: var(--accent); background: var(--field); outline: none; text-align: left;
 }
+
+
+/* Zoom + pan pad for the graphers */
+.ntbk-ge-pan {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 6px;
+}
+.ntbk-ge-pan .ntbk-mini { flex: 1 1 auto; min-width: 34px; }
+.ntbk-ge-pan .ntbk-mini[data-home] { flex: 1 1 100%; }
+.ntbk-insp-body .ntbk-ge-pan { padding: 2px 9px 6px; }
+
+
+/* ── While being rasterised for a PDF ──
+   Tight rows crop their text under html2canvas, which measures glyphs
+   slightly differently. Nothing here is visible on screen; the class exists
+   only for the duration of a capture. */
+/* Scoped to the rows that actually crop. A blanket overflow:visible also
+   un-hides KaTeX's MathML layer, which is hidden by being clipped to 1px —
+   and it then prints on top of the typeset maths as a doubled formula. */
+.ntbk-object.is-exporting .ntbk-code-head,
+.ntbk-object.is-exporting .ntbk-code-cmd,
+.ntbk-object.is-exporting .ntbk-code-tabs,
+.ntbk-object.is-exporting .ntbk-code-head *,
+.ntbk-object.is-exporting .ntbk-code-cmd * { overflow: visible !important; }
+/* html2canvas ignores clip-path, so KaTeX's screen-reader MathML is painted
+   over the visual output unless it is taken out of the flow outright. */
+.ntbk-object.is-exporting .katex-mathml { display: none !important; }
+
+.ntbk-object.is-exporting .ntbk-code-head,
+.ntbk-object.is-exporting .ntbk-code-cmd,
+.ntbk-object.is-exporting .ntbk-code-tabs { line-height: 1.9 !important; }
+.ntbk-object.is-exporting input,
+.ntbk-object.is-exporting .ntbk-code-name,
+.ntbk-object.is-exporting .ntbk-code-lang { line-height: 1.9 !important; height: auto !important; }
+/* An empty command box prints as an empty box, not a grey instruction */
+.ntbk-object.is-exporting input::placeholder { color: transparent !important; }
+
+
+/* ── Formula library ───────────────────────── */
+.ntbk-formulas {
+  position: fixed; top: calc(var(--ribbon-h) + 44px); right: 18px; z-index: 60;
+  width: 340px; max-height: calc(100vh - var(--ribbon-h) - 80px);
+  display: flex; flex-direction: column;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22);
+  font-size: 12px;
+}
+.ntbk-formulas-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--line);
+  cursor: move; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+.ntbk-formulas-head strong { flex: 1; font-size: 12px; }
+.ntbk-formulas .ntbk-mini { color: var(--text); }
+.ntbk-formulas-filter { display: flex; gap: 6px; padding: 8px; }
+.ntbk-formulas input[type="text"],
+.ntbk-formulas select,
+.ntbk-formulas textarea {
+  font: inherit; font-size: 12px; color: var(--text); background: var(--field);
+  border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px;
+  box-sizing: border-box; min-width: 0;
+}
+.ntbk-formulas input[type="text"]:focus,
+.ntbk-formulas select:focus,
+.ntbk-formulas textarea:focus { outline: none; border-color: var(--accent); }
+.ntbk-formulas-filter input { flex: 1; }
+.ntbk-formulas-filter select { max-width: 120px; }
+.ntbk-formulas-list {
+  flex: 1 1 150px; min-height: 90px; overflow-y: auto;
+  border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
+  background: var(--panel-2);
+}
+.ntbk-formulas-group {
+  padding: 7px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.ntbk-formulas-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 6px 10px; border: 0; border-left: 3px solid transparent;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.ntbk-formulas-row:hover { background: var(--hover); }
+.ntbk-formulas-row.is-current { background: var(--accent-soft); border-left-color: var(--accent); }
+.ntbk-formulas-name { flex: 0 0 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntbk-formulas-preview {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: 10px; color: var(--text-dim); text-align: right;
+}
+.ntbk-formulas-preview.is-bad { font-size: 0; }
+.ntbk-formulas-empty { padding: 18px 12px; color: var(--text-dim); text-align: center; }
+.ntbk-formulas-detail { flex: 0 1 auto; overflow-y: auto; padding: 8px 10px 10px; }
+.ntbk-formulas-detail:empty { display: none; }
+.ntbk-formulas-view {
+  min-height: 34px; padding: 8px 6px; overflow-x: auto; overflow-y: hidden;
+  background: var(--field); border: 1px solid var(--line-soft); border-radius: 4px;
+  font-size: 13px; text-align: center;
+}
+.ntbk-formulas-view:empty { display: none; }
+.ntbk-formulas-view .katex-display { margin: 0; }
+.ntbk-formulas-view.is-bad,
+.ntbk-formulas-result.is-bad,
+.ntbk-formulas-hint.is-bad { color: #d0483a; }
+.ntbk-formulas-view.is-bad { font-family: var(--mono); font-size: 11px; text-align: left; }
+.ntbk-formulas-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.ntbk-formulas-actions .ntbk-primary { padding: 4px 12px; }
+.ntbk-formulas-calc { margin-top: 10px; border-top: 1px solid var(--line-soft); }
+.ntbk-formulas-calc .ntbk-formulas-group { padding-left: 0; }
+/* One grid for all the rows, so the boxes line up however long a name is */
+.ntbk-formulas-inputs {
+  display: grid; grid-template-columns: minmax(40px, max-content) minmax(90px, 1fr);
+  gap: 5px 8px; align-items: center;
+}
+.ntbk-formulas-input { display: contents; }
+.ntbk-formulas-input > span { text-align: right; white-space: nowrap; }
+.ntbk-formulas .ntbk-mini.is-danger { border-color: #d0483a; color: #d0483a; }
+.ntbk-formulas-result {
+  margin: 8px 0 6px; padding: 7px 8px; min-height: 18px; overflow-x: auto;
+  background: var(--field); border: 1px solid var(--line-soft); border-radius: 4px;
+  font-size: 13px; color: var(--text-dim);
+}
+.ntbk-formulas-result .katex { color: var(--text); }
+.ntbk-formulas-hint { margin-top: 6px; font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+.ntbk-formulas-form { display: flex; flex-direction: column; gap: 7px; }
+.ntbk-formulas-field { display: flex; flex-direction: column; gap: 3px; }
+.ntbk-formulas-field > span { font-size: 10px; color: var(--text-dim); }
+.ntbk-formulas-field textarea { min-height: 54px; resize: vertical; font-family: var(--mono); font-size: 11px; }
+.ntbk-formulas-field input[placeholder*="="] { font-family: var(--mono); font-size: 11px; }
+
+
+/* ── Protractor and compass ─────────────────
+   Drawn in page units and scaled with the page, so 5cm stays 5cm against
+   the paper. Only the handles take the pointer; the rest lets the pen through. */
+.ntbk-instrument {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 45;
+  transform-origin: 0 0; pointer-events: none;
+  --inst-line: rgba(20, 60, 120, .8);
+  --inst-soft: rgba(20, 60, 120, .45);
+  --inst-fill: rgba(190, 220, 255, .28);
+  --inst-text: #173a6b;
+}
+:root[data-theme="dark"] .ntbk-instrument {
+  --inst-line: rgba(170, 205, 255, .9);
+  --inst-soft: rgba(170, 205, 255, .5);
+  --inst-fill: rgba(120, 170, 255, .14);
+  --inst-text: #cfe0ff;
+}
+.ntbk-instrument[hidden] { display: none; }
+.ntbk-instrument-svg { position: absolute; overflow: visible; pointer-events: none; }
+.ntbk-instrument [data-grip] { pointer-events: all; touch-action: none; }
+.ntbk-instrument text {
+  font-family: var(--font); text-anchor: middle; dominant-baseline: central;
+  fill: var(--inst-text); user-select: none; -webkit-user-select: none;
+}
+.ntbk-instrument-knob {
+  fill: var(--accent); stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke;
+  cursor: grab; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+}
+.ntbk-instrument-knob.is-turn { cursor: alias; }
+.ntbk-instrument-knob.is-square { cursor: ew-resize; }
+.ntbk-instrument-grip { cursor: move; }
+.ntbk-instrument-grip rect {
+  fill: var(--panel-2); stroke: var(--inst-soft); stroke-width: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .25));
+}
+.ntbk-instrument-grip text { font-size: 12px; font-weight: 600; fill: var(--text); }
+
+.ntbk-protractor-body {
+  fill: var(--inst-fill); stroke: var(--inst-line); stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.ntbk-protractor-ticks line { stroke: var(--inst-soft); stroke-width: .6; }
+.ntbk-protractor-ticks line.is-major { stroke: var(--inst-line); stroke-width: 1; }
+.ntbk-protractor-ticks text { font-size: 8px; }
+.ntbk-protractor-ticks text.is-inner { font-size: 6.5px; opacity: .7; }
+.ntbk-protractor-cross { stroke: #d0483a; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ntbk-protractor-guide { stroke: var(--inst-soft); stroke-width: .6; stroke-dasharray: 3 3; }
+.ntbk-protractor-arm {
+  stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke;
+}
+
+.ntbk-compass-guide {
+  fill: none; stroke: var(--inst-soft); stroke-width: 1; stroke-dasharray: 5 5;
+  vector-effect: non-scaling-stroke;
+}
+.ntbk-compass-leg {
+  stroke: var(--inst-line); stroke-width: 1.4; vector-effect: non-scaling-stroke;
+}
+.ntbk-compass-point { cursor: move; }
+.ntbk-compass-point circle {
+  fill: rgba(255, 255, 255, .01); stroke: #d0483a; stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.ntbk-compass-point circle.is-dot { fill: #d0483a; stroke: none; }
+.ntbk-compass-pencil {
+  stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: crosshair;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .4));
+}
+.ntbk-compass-label rect { fill: var(--panel-2); stroke: var(--inst-soft); stroke-width: 1; }
+.ntbk-compass-label text { font-size: 11px; font-weight: 600; fill: var(--text); }

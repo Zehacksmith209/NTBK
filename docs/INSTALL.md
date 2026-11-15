@@ -105,6 +105,91 @@ it needs a POSIX pty, which Windows does not have. Everything else runs: ink,
 maths, plots, text, layers, the ruler, PDF export. See
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-terminal-in-a-code-cell-does-nothing-on-windows).
 
+If you want the terminal and code cells, use WSL instead — see below.
+
+---
+
+## Windows with WSL
+
+Follow this if you want **code cells and the terminal**, which the native
+Windows build cannot provide. Everything else works either way, so if you are
+not running code, the native install above is simpler.
+
+WSL is a real Linux environment that runs alongside Windows. It does not
+replace or disable anything — PowerShell, your files and your programs are
+untouched. You open Ubuntu like any other app and run ntbk inside it.
+
+**Git Bash is not a substitute.** It is a bash shell on top of Windows, so
+Python launched from it is still Windows Python with no `pty` module. The
+shell is not the part that matters; the kernel is.
+
+### 1. Check WSL
+
+In PowerShell:
+
+```powershell
+wsl --version
+```
+
+You need a **WSLg version** line — that is what lets a Linux window appear on
+the Windows desktop. If the command is not recognised, install it from an
+Administrator PowerShell and reboot:
+
+```powershell
+wsl --install
+```
+
+If `wsl -l -v` shows a distro at `VERSION 1`, upgrade it — WSL 1 has no WSLg:
+
+```powershell
+wsl --set-version Ubuntu 2
+```
+
+### 2. Install the dependencies
+
+Everything from here runs **inside Ubuntu**, not PowerShell.
+
+```bash
+sudo apt install python3 python3-venv python3-gi gir1.2-webkit2-4.1
+```
+
+On Ubuntu 22.04 the WebKit package is `gir1.2-webkit2-4.0` instead. `lsb_release -a`
+tells you which release you are on.
+
+**Do not install Node from apt** — it ships 12 on 22.04 and 18 on 24.04, both
+below the 20.19 this project needs, and `npm run build` will fail. Use nvm:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 22
+```
+
+### 3. Clone into the Linux home, not /mnt/c
+
+This matters. Node on the Windows drive is very slow and Vite's file watching
+does not fire reliably across the mount.
+
+```bash
+cd ~ && git clone https://github.com/Zehacksmith209/NTBK.git ntbk && cd ntbk
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+npm --prefix frontend install && npm --prefix frontend run build
+```
+
+### 4. Run it
+
+```bash
+cd ~/ntbk && export SHELL=/bin/bash && WEBKIT_DISABLE_DMABUF_RENDERER=1 ./venv/bin/python ./ntbk/app.py
+```
+
+Both of those are needed, and both are explained in
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md#wsl-the-window-opens-but-never-paints-not-responding):
+`WEBKIT_DISABLE_DMABUF_RENDERER` stops WebKitGTK hanging under WSLg, and
+`SHELL` works around a wrong default when the app is not started from a login
+shell.
+
+**Start the app from inside an Ubuntu terminal**, not from PowerShell via
+`wsl …` and not from a shortcut. Launching from a real bash prompt means
+`$SHELL` is always set, so that second workaround never has to matter.
+
 ---
 
 ## When you change the code
