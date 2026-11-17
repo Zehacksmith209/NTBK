@@ -1,3 +1,4 @@
+import { linkEnds } from "../graph/knowledge.js";
 // ─────────────────────────────────────────────
 //  PROPERTIES MENU
 //
@@ -14,6 +15,13 @@ const SWATCHES = [
 ];
 
 let open = null;
+
+// Types that open an editor when asked (they listen for "ntbk:edit")
+const EDITABLE = new Set(["sim", "graph", "latex", "vars", "text"]);
+const EDIT_LABELS = {
+  sim: "Inputs, graphs and results…", graph: "Edit plot…", latex: "Edit formula…",
+  vars: "Edit variables…", text: "Edit text…",
+};
 
 export function closeContextMenu() {
   open?.remove();
@@ -68,6 +76,14 @@ export function openContextMenu(app, clientX, clientY) {
     parent.appendChild(el);
     return el;
   };
+
+  // ── Edit: the same as double-clicking it ──
+  const only = count === 1 ? app.store.find([...app.selection][0]) : null;
+  if (only && EDITABLE.has(only.type)) {
+    const edit = row("Edit");
+    button(edit, EDIT_LABELS[only.type] ?? "Edit…", "Open its editor",
+      () => app.editElement(only.id), !app.isInteractive(only));
+  }
 
   // ── Rotate ──
   const rotate = row("Rotate");
@@ -172,7 +188,7 @@ export function openContextMenu(app, clientX, clientY) {
     if (already.length) {
       const linkRow = row("");
       const name = already.length === 1 ? already[0].label : `${already.length} concepts`;
-      button(linkRow, `⇢ Link ${name}…`, "Say what this concept needs first",
+      button(linkRow, `⇢ Link ${name}…`, "Connect this concept to another one",
         () => openGraphLink(app, already, clientX, clientY));
     }
   }
@@ -338,7 +354,7 @@ function openGraphLink(app, sources, clientX, clientY) {
   const panel = document.createElement("div");
   panel.className = "ntbk-context ntbk-capture";
   const from = sources.length === 1 ? sources[0].label : `${sources.length} concepts`;
-  panel.innerHTML = `<div class="ntbk-context-head">${from} needs first…</div>`;
+  panel.innerHTML = `<div class="ntbk-context-head">Link ${from} to…</div>`;
 
   const field = document.createElement("input");
   field.className = "ntbk-capture-input";
@@ -363,14 +379,8 @@ function openGraphLink(app, sources, clientX, clientY) {
       const item = document.createElement("button");
       item.className = "ntbk-context-btn";
       item.textContent = other.label;
-      item.title = `${from} needs ${other.label} first`;
-      item.addEventListener("click", () => {
-        for (const source of sources) graph.linkNodes(other.id, source.id, "prerequisite");
-        graph.select(sources[0].id);
-        app.openGraphPanel?.();
-        closeGraphCapture();
-        closeContextMenu();
-      });
+      item.title = `Link ${from} and ${other.label}`;
+      item.addEventListener("click", () => chooseType(other));
       hits.appendChild(item);
     }
     if (!found.length) {
@@ -380,6 +390,37 @@ function openGraphLink(app, sources, clientX, clientY) {
         ? "Nothing matches that." : "No other concepts yet.";
       hits.appendChild(note);
     }
+  };
+
+  // Second step: say how they are connected
+  const chooseType = (other) => {
+    field.remove();
+    panel.querySelector(".ntbk-context-head").textContent = `${from}…`;
+    hits.innerHTML = "";
+    for (const [type, phrase] of [
+      ["prerequisite", `needs “${other.label}” first`],
+      ["derives", `is derived from “${other.label}”`],
+      ["example", `is an example of “${other.label}”`],
+      ["cites", `comes from “${other.label}”`],
+      ["contrast", `contrasts with “${other.label}”`],
+      ["related", `is related to “${other.label}”`],
+    ]) {
+      const item = document.createElement("button");
+      item.className = "ntbk-context-btn";
+      item.textContent = phrase;
+      item.addEventListener("click", () => {
+        for (const source of sources) {
+          const [a, b] = linkEnds(type, source.id, other.id);
+          graph.linkNodes(a, b, type);
+        }
+        graph.select(sources[0].id);
+        app.openGraphPanel?.();
+        closeGraphCapture();
+        closeContextMenu();
+      });
+      hits.appendChild(item);
+    }
+    hits.querySelector("button")?.focus();
   };
 
   field.addEventListener("input", draw);

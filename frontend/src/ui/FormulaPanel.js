@@ -1,4 +1,6 @@
 import katex from "katex";
+import { format } from "mathjs";
+import { evaluateTyped, variableValue } from "../sim/variables.js";
 import {
   loadFormulas, saveFormulas, createFormula, parseDefinition, definitionTex, calculate,
   symbolTex,
@@ -273,7 +275,10 @@ export class FormulaPanel {
     let lastTex = "";
 
     const work = () => {
-      const answer = calculate(definition, typed);
+      const answer = calculate(definition, typed, {
+        read: (text) => evaluateTyped(text).value,
+        fallback: (name) => variableValue(name),
+      });
       result.classList.toggle("is-bad", !answer.ok && !answer.missing);
       insert.disabled = !answer.ok;
       if (answer.ok) {
@@ -299,7 +304,10 @@ export class FormulaPanel {
       field.type = "text";
       field.spellcheck = false;
       field.value = typed[name] ?? "";
-      field.placeholder = "value";
+      // A notebook variable of the same name is used when this is left empty
+      const known = variableValue(name);
+      field.placeholder = known !== undefined
+        ? `${format(known, { precision: 5 })} (from the notebook)` : "value";
       field.addEventListener("input", () => { typed[name] = field.value; work(); });
       row.append(label, field);
       rows.appendChild(row);

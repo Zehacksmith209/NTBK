@@ -117,7 +117,7 @@ export const bridge = {
     for (const [path, b64] of Object.entries(parsed.assets ?? {})) {
       assets.set(path, fromBase64(b64));
     }
-    return { data: JSON.parse(parsed.document), assets };
+    return { data: JSON.parse(parsed.document), assets, path: parsed.path ?? null };
   },
 
   /** Open another notebook in its own window. */
@@ -128,6 +128,51 @@ export const bridge = {
   },
 
   /** Name the window after its document. */
+  /** Save exported text (CSV results and the like) where the user chooses. */
+  async saveText(name, text, kind = "Text") {
+    if (!api()) {
+      // Without the desktop app, an ordinary browser download
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      const a = Object.assign(document.createElement("a"), { href: url, download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return { ok: true, name };
+    }
+    try { return JSON.parse(await api().save_text_file(name, text, kind)); }
+    catch (error) { return { ok: false, error: String(error) }; }
+  },
+
+  /** Open a notebook file by its path, for a link from another notebook. */
+  async openPath(path) {
+    if (!api() || !path) return null;
+    const payload = await api().open_ntbk_path(path);
+    if (!payload) return null;
+    const parsed = JSON.parse(payload);
+    const assets = new Map();
+    for (const [name, b64] of Object.entries(parsed.assets ?? {})) {
+      assets.set(name, fromBase64(b64));
+    }
+    return { data: JSON.parse(parsed.document), assets, path: parsed.path ?? null };
+  },
+
+  /** The file the notebook on screen saves to, or null before its first save. */
+  async currentPath() {
+    if (!api()) return null;
+    try { return (await api().get_current_path()) || null; } catch { return null; }
+  },
+
+  /** Point saving, code cells and exports at another tab's file (null for a new one). */
+  async setCurrentPath(path) {
+    if (!api()) return false;
+    try { return await api().set_current_path(path ?? null); } catch { return false; }
+  },
+
+  /** Which notebooks have unsaved changes, so closing the window asks first. */
+  async setUnsaved(names) {
+    if (!api()) return false;
+    try { return await api().set_unsaved(names ?? []); } catch { return false; }
+  },
+
   async setTitle(title) {
     if (!api()) { document.title = title ? `${title} — ntbk` : "ntbk"; return; }
     await api().set_title(title ?? "");
@@ -273,7 +318,7 @@ export const bridge = {
       for (const [path, b64] of Object.entries(parsed.assets ?? {})) {
         assets.set(path, fromBase64(b64));
       }
-      return { data: JSON.parse(parsed.document), assets };
+      return { data: JSON.parse(parsed.document), assets, path: parsed.path ?? null };
     }
 
     return new Promise((resolve) => {

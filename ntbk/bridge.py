@@ -66,6 +66,9 @@ def write_config(data):
 class Api:
     def __init__(self):
         self.current_path = None
+        # Every notebook file this window has opened or saved. A tab may only
+        # point saving at one of these, never at a path page script made up.
+        self._known_paths = set()
         # Each window owns its own Api, so its own document, terminals and
         # working directory. These are filled in by the shell once the window
         # exists — see attach().
@@ -137,6 +140,7 @@ class Api:
             handle.write(buffer.getvalue())
 
         self.current_path = path
+        self._known_paths.add(os.path.abspath(path))
         # Code cells are mirrored to a folder beside the notebook, so the .py
         # and .cpp files are real files you can open, run and compile outside
         # the app. The notebook stays the source of truth; this is a copy.
@@ -563,7 +567,91 @@ class Api:
 
         json.loads(document_json)   # reject a corrupt file before the UI sees it
         self.current_path = path
-        return json.dumps({"document": document_json, "assets": assets})
+        self._known_paths.add(os.path.abspath(path))
+        return json.dumps({"document": document_json, "assets": assets,
+                           "path": os.path.abspath(path)})
+
+    def save_text_file(self, suggested_name, text, kind="Text"):
+        """Save some text the user asked to export, e.g. simulation results as CSV.
+
+        Always through a save dialog: the page chooses the contents, the
+        person chooses where they go.
+        """
+        try:
+            window = self._window()
+            extension = os.path.splitext(str(suggested_name))[1] or ".txt"
+            start_in = os.path.dirname(os.path.abspath(self.current_path)) \
+                if self.current_path else os.path.join(os.path.expanduser("~"), "Documents")
+            result = window.create_file_dialog(
+                webview.SAVE_DIALOG, directory=start_in,
+                save_filename=os.path.basename(str(suggested_name)),
+                file_types=(f"{kind} (*{extension})",),
+            )
+            if not result:
+                return json.dumps({"ok": False, "cancelled": True})
+            path = result if isinstance(result, str) else result[0]
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                handle.write(str(text))
+            return json.dumps({"ok": True, "name": os.path.basename(path), "path": path})
+        except Exception as error:
+            return json.dumps({"ok": False, "error": f"{type(error).__name__}: {error}"})
+
+    def open_ntbk_path(self, path):
+        """Open a notebook another notebook links to, without a dialog.
+
+        Only reads, and only .ntbk files that exist: the path comes from a
+        document, so it must not become a way to read arbitrary files.
+        """
+        try:
+            path = os.path.abspath(os.path.expanduser(str(path)))
+        except Exception:
+            return None
+        if not path.lower().endswith(".ntbk") or not os.path.isfile(path):
+            return None
+        try:
+            return self._read_ntbk(path)
+        except Exception:
+            return None
+
+    # ── Tabs ───────────────────────────────────
+    def get_current_path(self):
+        return os.path.abspath(self.current_path) if self.current_path else None
+
+    def set_current_path(self, path):
+        """Make another tab's file the one that saving, code and export use.
+
+        None is a notebook that has not been saved yet. Anything else must be
+        a file this window has itself opened or saved: this is callable from
+        page script, and must not become a way to write anywhere on disk
+        without a save dialog.
+        """
+        if not path:
+            self.current_path = None
+            return True
+        path = os.path.abspath(str(path))
+        if path not in self._known_paths:
+            return False
+        self.current_path = path
+        return True
+
+    def set_unsaved(self, names):
+        """Ask before the window closes while any of these notebooks is unsaved.
+
+        Kept up to date by the page as edits happen, because by the time the
+        window is closing it is too late to ask the page anything.
+        """
+        names = [str(name) for name in (names or [])][:20]
+        try:
+            window = self._window()
+            window.confirm_close = bool(names)
+            if names:
+                listed = ", ".join(f"\u201c{name}\u201d" for name in names)
+                window.localization["global.quitConfirmation"] = (
+                    f"Unsaved changes in {listed}. Close the window and lose them?")
+                window.localization["global.quit"] = "Close without saving"
+            return True
+        except Exception:
+            return False
 
     # ── Code cells ─────────────────────────────
     def workdir(self):

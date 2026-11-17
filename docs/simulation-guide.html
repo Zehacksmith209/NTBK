@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0}</style>
+<title>ntbk Simulation Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a lab-notebook reference — sticky contents rail on the left, one reading column on graph paper. */
+:root {
+  --bg: #fbfcfe;
+  --paper: #ffffff;
+  --grid: #e8edf5;
+  --fg: #1b2230;
+  --dim: #5d6779;
+  --rule: #dfe4ec;
+  --accent: #1a6ef5;
+  --accent-soft: #e6efff;
+  --code-bg: #f3f6fb;
+  --k-key: #8c3fb0;
+  --k-shape: #1a6ef5;
+  --k-num: #b45309;
+  --k-str: #2f855a;
+  --k-com: #8a93a3;
+  --k-rate: #c0392b;
+  --good: #2f9e6e;
+  --bad: #d0483a;
+  --warm: #d9822b;
+  --violet: #8c5ba8;
+  --display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141c; --paper: #151b25; --grid: #1b2330; --fg: #e4e8ef; --dim: #96a0b2; --rule: #273041;
+    --accent: #6ea1ff; --accent-soft: #1b2a45; --code-bg: #111823;
+    --k-key: #d19bf0; --k-shape: #7fb0ff; --k-num: #f0a85a; --k-str: #6fd39c; --k-com: #6e788a; --k-rate: #ff8a7a;
+    --good: #4cc08c; --bad: #f07466; --warm: #f0a050; --violet: #c095dc;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141c; --paper: #151b25; --grid: #1b2330; --fg: #e4e8ef; --dim: #96a0b2; --rule: #273041;
+  --accent: #6ea1ff; --accent-soft: #1b2a45; --code-bg: #111823;
+  --k-key: #d19bf0; --k-shape: #7fb0ff; --k-num: #f0a85a; --k-str: #6fd39c; --k-com: #6e788a; --k-rate: #ff8a7a;
+  --good: #4cc08c; --bad: #f07466; --warm: #f0a050; --violet: #c095dc;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15.5px/1.65 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 48px; padding-block: 40px 80px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding-block: 24px 60px; } nav.toc { display: none; } }
+
+/* Contents rail */
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 13px; }
+nav.toc .brand { font: 600 15px var(--display); letter-spacing: .01em; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+nav.toc .brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); display: inline-block; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: s; }
+nav.toc li a { display: flex; gap: 8px; padding: 3px 8px; border-radius: 6px; color: var(--dim); text-decoration: none; }
+nav.toc li a:hover, nav.toc li a:focus-visible { background: var(--accent-soft); color: var(--fg); outline: none; }
+nav.toc li a span { font-family: var(--mono); font-size: 11px; color: var(--k-com); min-width: 16px; padding-top: 1px; }
+nav.toc .group { margin: 14px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--k-com); }
+
+main { min-width: 0; }
+
+/* Opening */
+header.hero {
+  border: 1px solid var(--rule); border-radius: 12px; padding: 28px 28px 24px; margin-bottom: 40px;
+  background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px; background-position: -1px -1px;
+}
+.eyebrow { font: 500 11.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 700 clamp(30px, 5vw, 42px)/1.1 var(--display); letter-spacing: -.01em; margin: 8px 0 12px; text-wrap: balance; }
+.lede { font-size: 17px; max-width: 62ch; margin: 0 0 18px; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+@media (max-width: 720px) { .hero-grid { grid-template-columns: minmax(0, 1fr); } }
+.hero-grid pre { margin: 0; height: 100%; }
+.how { display: grid; gap: 8px; align-content: start; font-size: 14px; }
+.how div { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: start; }
+.how b { font: 600 12px var(--mono); color: var(--accent); background: var(--accent-soft); border-radius: 6px; text-align: center; padding: 2px 0; }
+
+/* Sections */
+section { margin: 0 0 56px; scroll-margin-top: 24px; }
+h2 { font: 600 25px/1.2 var(--display); margin: 0 0 6px; display: flex; gap: 12px; align-items: baseline; text-wrap: balance; }
+h2 .n { font: 500 13px var(--mono); color: var(--k-com); }
+h2 + .sub { color: var(--dim); margin: 0 0 18px; max-width: 65ch; }
+h3 { font: 600 17px/1.3 var(--display); margin: 28px 0 8px; }
+p, li { max-width: 68ch; }
+a { color: var(--accent); }
+code { font: 13.5px var(--mono); background: var(--code-bg); border: 1px solid var(--rule); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+.kbd { font: 12px var(--mono); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--paper); }
+
+/* Code blocks */
+.code { position: relative; margin: 14px 0 18px; }
+pre {
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 14px 16px; margin: 0; overflow-x: auto;
+  font: 13.5px/1.6 var(--mono); tab-size: 2;
+}
+pre code { background: none; border: none; padding: 0; white-space: pre; font-size: inherit; }
+.code .cap { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 500 11.5px var(--mono); color: var(--dim); margin: 0 0 6px; letter-spacing: .02em; }
+.copy {
+  font: 500 11.5px var(--mono); color: var(--dim); background: var(--paper); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 2px 9px; cursor: pointer;
+}
+.copy:hover, .copy:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
+.t-key { color: var(--k-key); font-weight: 600; }
+.t-shape { color: var(--k-shape); font-weight: 600; }
+.t-opt { color: var(--k-key); }
+.t-num { color: var(--k-num); }
+.t-str { color: var(--k-str); }
+.t-com { color: var(--k-com); font-style: italic; }
+.t-rate { color: var(--k-rate); font-weight: 500; }
+
+/* Tables */
+.table { overflow-x: auto; margin: 14px 0 18px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+tr:last-child td { border-bottom: none; }
+th { font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); background: var(--code-bg); }
+td code { white-space: pre-wrap; word-break: break-word; }
+td.nowrap code { white-space: nowrap; }
+
+/* Callouts */
+.note { border: 1px solid var(--rule); border-left: 3px solid var(--accent); background: var(--paper); border-radius: 8px; padding: 10px 14px; margin: 14px 0; font-size: 14.5px; }
+.note.warn { border-left-color: var(--warm); }
+.note b:first-child { font-family: var(--display); }
+
+/* Figure */
+figure { margin: 16px 0 20px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: 12px; }
+figure svg { width: 100%; height: auto; display: block; max-width: 640px; margin: 0 auto; }
+figcaption { font-size: 13px; color: var(--dim); margin-top: 8px; text-align: center; }
+
+/* Shape cards */
+.shapes { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 16px 0; }
+.shape { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: 12px 14px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.shape svg { width: 100%; height: 54px; display: block; }
+.shape .name { font: 600 15px var(--display); }
+.shape code { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
+.shape p { margin: 0; font-size: 13.5px; color: var(--dim); }
+
+/* Example tabs */
+.examples { border: 1px solid var(--rule); border-radius: 12px; background: var(--paper); overflow: hidden; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; border-bottom: 1px solid var(--rule); background: var(--code-bg); }
+.tabs button {
+  font: 500 13px var(--body); color: var(--dim); background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 5px 11px; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--fg); border-color: var(--rule); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.panel { padding: 16px 18px 6px; }
+.panel p { margin-top: 0; }
+.panel .code { margin-top: 6px; }
+
+.cheat { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.cheat pre { height: 100%; }
+footer { color: var(--dim); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 18px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="toc" aria-label="Contents">
+    <div class="brand"><i></i>Simulation guide</div>
+    <ol>
+      <li><a href="#start"><span>01</span>Your first simulation</a></li>
+      <li><a href="#lines"><span>02</span>How a model is read</a></li>
+      <li><a href="#equations"><span>03</span>Equations of motion</a></li>
+      <li><a href="#inputs"><span>04</span>Inputs and sliders</a></li>
+      <li><a href="#start-values"><span>05</span>Starting values</a></li>
+      <li><a href="#quantities"><span>06</span>Quantities and results</a></li>
+      <li><a href="#units"><span>07</span>Units</a></li>
+      <li><a href="#maths"><span>08</span>Maths you can use</a></li>
+      <li><a href="#stop"><span>09</span>Ending a run</a></li>
+      <li><a href="#graphs"><span>10</span>Graphs</a></li>
+    </ol>
+    <div class="group">Drawing</div>
+    <ol>
+      <li><a href="#drawing"><span>11</span>How drawing works</a></li>
+      <li><a href="#shapes"><span>12</span>Every shape</a></li>
+      <li><a href="#colours"><span>13</span>Colours and labels</a></li>
+    </ol>
+    <div class="group">Using it</div>
+    <ol>
+      <li><a href="#examples"><span>14</span>Worked examples</a></li>
+      <li><a href="#errors"><span>15</span>Error messages</a></li>
+      <li><a href="#limits"><span>16</span>What it can't do yet</a></li>
+      <li><a href="#cheat"><span>17</span>Cheat sheet</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow">ntbk · simulations</div>
+      <h1>Write the physics. Watch it move.</h1>
+      <p class="lede">An ntbk simulation is a few lines of text: the equations of motion as you'd write them in a textbook, the numbers with their units, and what to draw. ntbk solves the equations, checks the units, animates the drawing and graphs anything against anything.</p>
+      <div class="hero-grid">
+        <div class="code"><pre><code class="hl"># Mass on a spring
+m*x'' + k*x = 0
+m = 1 kg
+k = 40 N/m
+x(0) = 0.2 m
+draw wall from (-1, 0.3) to (-1, -0.3)
+draw spring from (-1, 0) to (x - 0.12, 0)
+draw block at (x, 0) size 0.24 label "m"</code></pre></div>
+        <div class="how">
+          <div><b>1</b><span><strong>Insert → Simulate → Write the equations…</strong> puts a simulation on the page.</span></div>
+          <div><b>2</b><span><strong>Right-click → Edit</strong> (or double-click) opens its text.</span></div>
+          <div><b>3</b><span>Type. Press <span class="kbd">⌘</span> <span class="kbd">↩</span> or click away to apply.</span></div>
+          <div><b>4</b><span>Press <strong>Play</strong> in the bar under the ribbon.</span></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 01 -->
+    <section id="start">
+      <h2><span class="n">01</span>Your first simulation</h2>
+      <p class="sub">A ball dropped from 20 m. Five lines of physics, two of drawing.</p>
+      <div class="code"><div class="cap"><span>dropped ball</span><button class="copy" type="button">Copy</button></div><pre><code class="hl"># Dropped ball
+y'' = -g
+g = 9.81 m/s^2
+y(0) = 20 m
+y'(0) = 0 m/s
+stop when y &lt;= 0
+draw ground from (-3, 0) to (3, 0)
+draw circle at (0, y) r 0.5 label "ball"</code></pre></div>
+      <p>Line by line:</p>
+      <ul>
+        <li><code># Dropped ball</code> is a comment. The first one names the simulation.</li>
+        <li><code>y'' = -g</code> is the <strong>equation of motion</strong>: y's acceleration is −g. The <code>''</code> means "rate of the rate", so <code>y'</code> is velocity and <code>y''</code> acceleration.</li>
+        <li><code>g = 9.81 m/s^2</code> is an <strong>input</strong>. It gets a slider in the Edit panel.</li>
+        <li><code>y(0) = 20 m</code> and <code>y'(0) = 0 m/s</code> are where it <strong>starts</strong>: 20 m up, at rest.</li>
+        <li><code>stop when y &lt;= 0</code> ends the run when the ball reaches the ground.</li>
+        <li>The <code>draw</code> lines make the picture. The ball is drawn <code>at (0, y)</code>, so it sits wherever y is at each instant. That one detail makes it move.</li>
+      </ul>
+      <p>Play it: it lands at t = 2.02 s, which is √(2h/g). In the Edit panel the equation is typeset as <em>ÿ = −g</em> with a check mark: <em>both sides in m/s²</em>.</p>
+    </section>
+
+    <!-- 02 -->
+    <section id="lines">
+      <h2><span class="n">02</span>How a model is read</h2>
+      <p class="sub">One statement per line. ntbk sorts each line by its shape; the order of lines doesn't matter.</p>
+      <div class="table"><table>
+        <thead><tr><th>A line like</th><th>Is</th><th>What ntbk does with it</th></tr></thead>
+        <tbody>
+          <tr><td class="nowrap"><code>m*x'' + k*x = 0</code></td><td>an equation of motion</td><td>Anything with a <code>'</code> that isn't <code>name = …</code>. Every name with a rate in it is a moving quantity.</td></tr>
+          <tr><td class="nowrap"><code>k = 40 N/m</code></td><td>an input</td><td>A name set to numbers. Gets a slider, and can use notebook variables.</td></tr>
+          <tr><td class="nowrap"><code>x(0) = 0.2 m</code></td><td>a starting value</td><td>Where a moving quantity starts. <code>x'(0)</code> sets its starting rate.</td></tr>
+          <tr><td class="nowrap"><code>E = 1/2*k*x^2</code></td><td>a quantity</td><td>Worked out at every instant; can be graphed.</td></tr>
+          <tr><td class="nowrap"><code>T = 2*pi*sqrt(m/k)</code></td><td>a result</td><td>Built only from inputs, so it never changes during a run. Shown under Results.</td></tr>
+          <tr><td class="nowrap"><code>stop when x &gt; 1</code></td><td>an ending</td><td>The run stops the moment this is true.</td></tr>
+          <tr><td class="nowrap"><code>graph v against x</code></td><td>a graph</td><td>Offered as a one-click graph; the first three open with the box.</td></tr>
+          <tr><td class="nowrap"><code>draw block at (x, 0)</code></td><td>a shape</td><td>Drawn every frame with the current numbers.</td></tr>
+          <tr><td class="nowrap"><code>view -1 -1 1 1</code></td><td>a fixed view</td><td>Left, bottom, right, top of the drawing area. Optional.</td></tr>
+          <tr><td class="nowrap"><code># note</code></td><td>a comment</td><td>Ignored. The first one is the simulation's name. A note after a line (<code>k = 40 N/m   # stiff</code>) works too: a <code>#</code> followed by a space.</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><b>The text is the record.</b> Moving a slider rewrites its line (<code>k = 60 N/m</code>), and so does using a saved configuration. What you see in the text is always exactly what runs.</div>
+    </section>
+
+    <!-- 03 -->
+    <section id="equations">
+      <h2><span class="n">03</span>Equations of motion</h2>
+      <p class="sub">Write them the way the textbook does. ntbk works out the rest.</p>
+      <h3>Rates</h3>
+      <p><code>x'</code> is how fast x changes (velocity if x is a position), <code>x''</code> is how fast that changes (acceleration), and <code>x'''</code> goes one further. Any name can move: <code>th</code>, <code>theta</code>, <code>x1</code>, <code>q</code> for charge.</p>
+      <h3>Any arrangement works</h3>
+      <p>These all mean the same, and ntbk handles each one:</p>
+      <div class="code"><pre><code class="hl">m*x'' + c*x' + k*x = F0*cos(w*t)
+m*x'' = F0*cos(w*t) - c*x' - k*x
+x'' = (F0*cos(w*t) - c*x' - k*x)/m</code></pre></div>
+      <p>ntbk never rearranges your equation. At each step it finds the acceleration that makes both sides balance, so you can write forces on either side.</p>
+      <h3>Several moving things</h3>
+      <p>Write one equation for each moving quantity. They're solved together, so they can depend on each other, including each other's accelerations:</p>
+      <div class="code"><pre><code class="hl">m*x1'' = -k*x1 + k*(x2 - x1)
+m*x2'' = -k*(x2 - x1) - k*x2</code></pre></div>
+      <h3>The two rules</h3>
+      <ul>
+        <li><strong>As many equations as moving quantities.</strong> Two equations, two names with rates. Otherwise ntbk says how many it found of each.</li>
+        <li><strong>The highest rate must appear plainly, multiplied by things.</strong> <code>m*x'' = …</code> and <code>(m + M)*x'' + m*L*th'' = …</code> are fine. <code>x''^2 = …</code> or <code>sin(x'') = …</code> aren't. Almost every mechanics equation qualifies. Lower rates and positions can appear any way you like: <code>sin(th)</code>, <code>x'^2</code>, <code>x'*abs(x')</code>.</li>
+      </ul>
+      <p>Time is <code>t</code>, in seconds, and can be used anywhere: <code>F0*cos(w*t)</code>, <code>5 N/s * t</code>.</p>
+    </section>
+
+    <!-- 04 -->
+    <section id="inputs">
+      <h2><span class="n">04</span>Inputs and sliders</h2>
+      <p class="sub">A name set to a number becomes something you can change.</p>
+      <div class="code"><pre><code class="hl">m = 2 kg
+theta = 30 deg
+mu = 0.2
+L = 4 m</code></pre></div>
+      <ul>
+        <li>Each one appears under <strong>Inputs</strong> in the Edit panel with a text box and a slider. Typing <code>3 kg</code> or dragging rewrites the line.</li>
+        <li>Units are optional but recommended: they're what makes the unit check work.</li>
+        <li><strong>Notebook variables:</strong> a name defined in a Variables box on the page can be used directly. <code>k = k_spring</code> links the input to it, and a name you never define here, but which the notebook has, becomes an input automatically.</li>
+        <li><strong>Configurations</strong> (controls bar) save the current inputs under a name. <em>Use</em> switches to them; <em>Compare</em> runs them alongside, drawn faintly and dashed on the graphs.</li>
+      </ul>
+    </section>
+
+    <!-- 05 -->
+    <section id="start-values">
+      <h2><span class="n">05</span>Starting values</h2>
+      <p class="sub">Every moving quantity starts somewhere. Anything you leave out starts at zero.</p>
+      <div class="code"><pre><code class="hl">x(0) = 0.2 m        # where x starts
+x'(0) = 0 m/s       # how fast it starts</code></pre></div>
+      <ul>
+        <li>For an equation with <code>x''</code>, you can set <code>x(0)</code> and <code>x'(0)</code>. Setting <code>x''(0)</code> is an error, because the equation decides it.</li>
+        <li>A plain starting value gets a slider, like an input.</li>
+        <li><strong>A starting value can use the inputs.</strong> Then it's worked out from them and follows their sliders, with no slider of its own:</li>
+      </ul>
+      <div class="code"><pre><code class="hl">v0 = 20 m/s
+a = 45 deg
+x'(0) = v0*cos(a)
+y'(0) = v0*sin(a)</code></pre></div>
+      <p>Change <code>a</code> and the launch direction changes with it. A starting value can't use a quantity that changes during the motion.</p>
+    </section>
+
+    <!-- 06 -->
+    <section id="quantities">
+      <h2><span class="n">06</span>Quantities and results</h2>
+      <p class="sub">Anything defined from other things. Which kind it is depends only on what it uses.</p>
+      <div class="table"><table>
+        <thead><tr><th>Uses</th><th>Kind</th><th>Shown</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>only numbers</td><td>input</td><td>Inputs, with a slider</td><td class="nowrap"><code>k = 40 N/m</code></td></tr>
+          <tr><td>inputs</td><td>result</td><td>Results (fixed for the run)</td><td class="nowrap"><code>T = 2*pi*sqrt(m/k)</code></td></tr>
+          <tr><td>anything that moves, or t</td><td>quantity</td><td>Graphs, CSV, Live values</td><td class="nowrap"><code>KE = 1/2*m*x'^2</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>Quantities can build on each other in any order: <code>E = KE + U</code> works whether KE is defined above or below it. A quantity that uses itself is an error. ntbk works out each one's unit (kg·m²/s² is shown as <strong>J</strong>), and that unit labels its graph axis.</p>
+      <p>Quantities are also how you keep drawings tidy. Work out a position once, then draw with it:</p>
+      <div class="code"><pre><code class="hl">bx = L*sin(th)
+by = -L*cos(th)
+draw rod from (0, 0) to (bx, by)
+draw circle at (bx, by) r 0.08</code></pre></div>
+    </section>
+
+    <!-- 07 -->
+    <section id="units">
+      <h2><span class="n">07</span>Units</h2>
+      <p class="sub">Write them after the number, as on paper. ntbk converts to SI and checks every equation.</p>
+      <div class="table"><table>
+        <thead><tr><th>Write</th><th>For</th></tr></thead>
+        <tbody>
+          <tr><td class="nowrap"><code>2 kg</code>  <code>4 m</code>  <code>30 cm</code>  <code>5 s</code></td><td>Plain units, with any prefix: mm, km, g, ms</td></tr>
+          <tr><td class="nowrap"><code>9.81 m/s^2</code>  <code>40 N/m</code></td><td>Divide with <code>/</code>, powers with <code>^</code></td></tr>
+          <tr><td class="nowrap"><code>0.8 N*s/m</code>  <code>0.01 kg/m</code></td><td>Multiply units with <code>*</code></td></tr>
+          <tr><td class="nowrap"><code>0.2 1/s</code>  <code>4 1/s^2</code></td><td>"per second" kinds of value</td></tr>
+          <tr><td class="nowrap"><code>30 deg</code>  <code>1.2 rad</code>  <code>6 rad/s</code></td><td>Angles. Degrees become radians for the maths.</td></tr>
+          <tr><td class="nowrap"><code>5 N/s * t</code></td><td>A value with units inside an expression</td></tr>
+        </tbody>
+      </table></div>
+      <h3>The unit check</h3>
+      <p>Under each equation in the Edit panel:</p>
+      <ul>
+        <li><span style="color:var(--good)">✓ both sides in N</span>: the equation is consistent.</li>
+        <li><span style="color:var(--warm)">⚠ left side in N, right side in N/m — they should agree</span>: something is missing. Here, <code>m*x'' = -k</code> should be <code>-k*x</code>.</li>
+      </ul>
+      <p>Radians count as a plain number, as in physics: ω/ωₙ has no unit, and an angle can go straight into <code>sin()</code>. An angular frequency (a name starting with <code>omega</code> or <code>w</code>) is shown in rad/s; other 1/s results are shown in Hz.</p>
+      <div class="note warn"><b>Always define g.</b> <code>g</code> is a unit too (grams). ntbk won't guess, so write <code>g = 9.81 m/s^2</code>.</div>
+    </section>
+
+    <!-- 08 -->
+    <section id="maths">
+      <h2><span class="n">08</span>Maths you can use</h2>
+      <p class="sub">The usual calculator notation, from the mathjs library.</p>
+      <div class="table"><table>
+        <thead><tr><th>Kind</th><th>Write</th></tr></thead>
+        <tbody>
+          <tr><td>Arithmetic</td><td><code>+  -  *  /  ^</code> and brackets. Multiplication needs <code>*</code>: <code>2*x</code>, not <code>2x</code>.</td></tr>
+          <tr><td>Functions</td><td><code>sin cos tan asin acos atan atan2 sqrt abs exp log log10 min max sign floor ceil round</code></td></tr>
+          <tr><td>Constants</td><td><code>pi</code>, <code>e</code></td></tr>
+          <tr><td>Comparisons</td><td><code>&lt;  &gt;  &lt;=  &gt;=  ==</code> give 1 when true, 0 when false: <code>F = k*(x &gt; 0)</code> pushes only when x is positive.</td></tr>
+          <tr><td>Logic</td><td><code>and</code>, <code>or</code>, <code>not</code>: <code>stop when y &lt; 0 and t &gt; 0</code></td></tr>
+        </tbody>
+      </table></div>
+      <h3>Names</h3>
+      <ul>
+        <li>Letters, digits and underscores, starting with a letter: <code>m</code>, <code>x1</code>, <code>Ff</code>, <code>vend</code>. A name made of several letters is one name; <code>Ff</code> is not F times f.</li>
+        <li><strong>Greek letters</strong> by name typeset as symbols: <code>theta</code> → θ, <code>omega</code> → ω, <code>mu</code> → μ, <code>zeta</code> → ζ.</li>
+        <li><strong>Subscripts</strong> with an underscore: <code>F_0</code> → F₀, <code>omega_n</code> → ωₙ. A trailing digit works too: <code>F0</code> → F₀.</li>
+        <li><code>t</code>, <code>pi</code> and <code>e</code> are taken. Don't use double underscores (<code>x__1</code>).</li>
+      </ul>
+      <p><code>min</code> and <code>max</code> are especially useful for physics that switches. Static friction can be written as <code>Ff = min(mu*N, m*g*sin(theta))</code>: it never pushes harder than needed to hold the block.</p>
+    </section>
+
+    <!-- 09 -->
+    <section id="stop">
+      <h2><span class="n">09</span>Ending a run</h2>
+      <p class="sub">Without an ending, a run goes on until you pause it.</p>
+      <div class="code"><pre><code class="hl">stop when y &lt; 0 and t &gt; 0     # a projectile lands
+stop when s &gt;= L               # a block reaches the bottom of the slope
+stop when t &gt; 5                # five seconds</code></pre></div>
+      <p>The run stops on the first step where the condition is true, which can be up to one time step past the exact moment (2 ms by default). After a run ends, Play starts it again from the beginning. Use <code>t &gt; 0</code> when the condition is already true at the start, as with a projectile launched from y = 0.</p>
+    </section>
+
+    <!-- 10 -->
+    <section id="graphs">
+      <h2><span class="n">10</span>Graphs</h2>
+      <p class="sub">Any quantity against any other: time, positions, rates, energies, forces.</p>
+      <div class="code"><pre><code class="hl">graph x                 # x against time
+graph v                 # v against time
+graph E                 # energy against time
+graph v against x       # a phase portrait
+graph F_s against x     # spring force against stretch</code></pre></div>
+      <ul>
+        <li>Every <code>graph</code> line is offered as a one-click chip above the graphs. <strong>The first three open with the box.</strong></li>
+        <li>Without any <code>graph</code> lines, each moving quantity is graphed against time, with its phase portrait and the first few quantities as chips.</li>
+        <li>Graphable names: <code>t</code>, every moving quantity and its rates (<code>x</code>, <code>x'</code>, <code>x''</code>), and every quantity.</li>
+        <li>On a graph, the two menus over its corner change what's up the side and along the bottom. <strong>+ Graph</strong> adds one, and <strong>×</strong> removes one.</li>
+        <li>Pointing at an instant on one graph marks it on all of them. On an x–y graph it's a ring on the curve.</li>
+        <li><strong>⇥ Graphs panel</strong> also shows the graphs, taller and stacked, in a panel on the right. It can hold several simulations at once, each labelled by name and colour.</li>
+        <li><strong>Graphs show</strong> in the controls bar picks the time window (last 10 s, or the whole run). <strong>Export CSV</strong> saves every recorded value with units.</li>
+      </ul>
+    </section>
+
+    <!-- 11 -->
+    <section id="drawing">
+      <h2><span class="n">11</span>How drawing works</h2>
+      <p class="sub">A <code>draw</code> line names a shape and where it goes. Where it goes can be any expression, and that's what animates it.</p>
+      <figure>
+        <svg viewBox="0 0 640 230" role="img" aria-label="Drawing coordinates: x to the right, y up, in the model's own units; a block at (x, 0) moves as x changes">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--dim)"/></marker>
+            <marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--good)"/></marker>
+          </defs>
+          <g stroke="var(--grid)" stroke-width="1">
+            <path d="M60 30 V200 M140 30 V200 M220 30 V200 M300 30 V200 M380 30 V200 M460 30 V200 M540 30 V200"/>
+            <path d="M40 50 H600 M40 90 H600 M40 130 H600 M40 170 H600"/>
+          </g>
+          <line x1="40" y1="170" x2="600" y2="170" stroke="var(--dim)" stroke-width="1.4" marker-end="url(#ah)"/>
+          <line x1="140" y1="200" x2="140" y2="28" stroke="var(--dim)" stroke-width="1.4" marker-end="url(#ah)"/>
+          <text x="604" y="166" fill="var(--dim)" font-family="var(--mono)" font-size="13">x</text>
+          <text x="146" y="34" fill="var(--dim)" font-family="var(--mono)" font-size="13">y</text>
+          <text x="118" y="188" fill="var(--dim)" font-family="var(--mono)" font-size="12">(0,0)</text>
+          <rect x="250" y="130" width="40" height="40" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6" opacity=".45" stroke-dasharray="4 3"/>
+          <rect x="350" y="130" width="40" height="40" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+          <text x="370" y="155" text-anchor="middle" fill="var(--accent)" font-family="var(--mono)" font-size="13" font-weight="600">m</text>
+          <path d="M292 120 C 310 104, 330 104, 348 120" fill="none" stroke="var(--dim)" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#ah)"/>
+          <text x="320" y="98" text-anchor="middle" fill="var(--dim)" font-family="var(--body)" font-size="12">x grows</text>
+          <line x1="370" y1="118" x2="440" y2="118" stroke="var(--good)" stroke-width="2" marker-end="url(#ag)"/>
+          <text x="448" y="122" fill="var(--good)" font-family="var(--mono)" font-size="12">by (x'/8, 0)</text>
+          <text x="370" y="196" text-anchor="middle" fill="var(--fg)" font-family="var(--mono)" font-size="12">at (x, 0)</text>
+        </svg>
+        <figcaption>Coordinates are in the model's own units (metres, usually): x to the right, y up. A shape placed at (x, 0) is redrawn wherever x is, every frame.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Points are written <code>(x, y)</code></strong>, and each part can be any expression: <code>(L*sin(th), -L*cos(th))</code>, <code>(x - 0.06, 0.025)</code>.</li>
+        <li><strong>The view fits itself.</strong> ntbk scales everything to fill the box, and the view only grows, so it never wobbles. Use <code>view left bottom right top</code> to fix it, for example <code>view -2 -1 2 1</code>.</li>
+        <li><strong>Sizes are in the same units as positions.</strong> A block of <code>size 0.24</code> is 0.24 m across, and it scales with everything else.</li>
+        <li><strong>Lengths that show a quantity need a scale.</strong> An arrow for a 20 N force drawn <code>by (F/20, 0)</code> is 1 m long, so the 20 means "20 N per metre on screen". Pick whatever makes it readable.</li>
+        <li>Shapes are drawn in order: later lines on top.</li>
+      </ul>
+    </section>
+
+    <!-- 12 -->
+    <section id="shapes">
+      <h2><span class="n">12</span>Every shape</h2>
+      <p class="sub">Fourteen shapes. Words in brackets are optional.</p>
+      <div class="shapes" id="shape-cards"></div>
+      <div class="note"><b>Which side is hatched?</b> Ground and walls are hatched on the right-hand side of the direction you draw them. Draw ground left to right for hatching underneath. Draw a wall top to bottom for hatching on its left, bottom to top for its right.</div>
+    </section>
+
+    <!-- 13 -->
+    <section id="colours">
+      <h2><span class="n">13</span>Colours and labels</h2>
+      <p class="sub">Add <code>colour</code> (or <code>color</code>) and <code>label</code> to shapes that take them.</p>
+      <div class="table"><table>
+        <thead><tr><th>Colour name</th><th>Looks like</th><th>Good for</th></tr></thead>
+        <tbody>
+          <tr><td><code>ink</code></td><td><span style="color:var(--fg)">■</span> the text colour</td><td>Structures, ground, rods (the default)</td></tr>
+          <tr><td><code>dim</code></td><td><span style="color:var(--dim)">■</span> grey</td><td>Reference lines, strings</td></tr>
+          <tr><td><code>accent</code></td><td><span style="color:var(--accent)">■</span> blue</td><td>Bodies (the default for blocks and circles)</td></tr>
+          <tr><td><code>good</code></td><td><span style="color:var(--good)">■</span> green</td><td>Velocity, normal force (the default for arrows)</td></tr>
+          <tr><td><code>bad</code></td><td><span style="color:var(--bad)">■</span> red</td><td>Weight, opposing forces</td></tr>
+          <tr><td><code>warm</code></td><td><span style="color:var(--warm)">■</span> orange</td><td>Driving forces</td></tr>
+          <tr><td><code>violet</code></td><td><span style="color:var(--violet)">■</span> purple</td><td>Friction, traces (the default for traces)</td></tr>
+        </tbody>
+      </table></div>
+      <p>Any web colour works too: <code>colour teal</code>, <code>colour #ff6a00</code>. The named ones follow the app's light and dark themes; others stay fixed.</p>
+      <p>Labels go in double quotes: <code>label "m"</code>, <code>label "F_net"</code>. A block or circle shows its label in the middle, a point beside it, and an arrow just past its tip.</p>
+    </section>
+
+    <!-- 14 -->
+    <section id="examples">
+      <h2><span class="n">14</span>Worked examples</h2>
+      <p class="sub">Each one has been run in ntbk. Copy one into a new simulation's Edit panel and change it.</p>
+      <div class="examples">
+        <div class="tabs" role="tablist" aria-label="Examples" id="ex-tabs"></div>
+        <div id="ex-panels"></div>
+      </div>
+      <p style="margin-top:14px">Two more come with ntbk under <strong>Insert → Simulate → Mechanical</strong>: <em>Mass–spring–damper</em> (driven, with natural frequency, damping ratio and steady-state amplitude) and <em>Block sliding down a slope</em> (weight, normal force and friction drawn as arrows). Right-click either one → Edit to read its model.</p>
+    </section>
+
+    <!-- 15 -->
+    <section id="errors">
+      <h2><span class="n">15</span>Error messages</h2>
+      <p class="sub">Errors appear under the text with their line number. Click one to jump to that line.</p>
+      <div class="table"><table>
+        <thead><tr><th>You see</th><th>It means</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td><code>k isn't defined — add a line like  k = 1</code></td><td>A name is used but never given a value.</td><td>Add <code>k = 40 N/m</code>, or define it in a Variables box.</td></tr>
+          <tr><td><code>2 equations but 3 moving quantities (x, y, z) — they must match</code></td><td>Each moving quantity needs exactly one equation.</td><td>Add the missing equation, or remove the stray rate (often a typo like <code>z'</code>).</td></tr>
+          <tr><td><code>not linear in x'' — …</code></td><td>The highest rate is squared or inside a function.</td><td>Rewrite so <code>x''</code> appears plainly: <code>m*x'' = …</code></td></tr>
+          <tr><td><code>y': y has no equation of motion, so it has no rate</code></td><td>A rate is used for something that doesn't move.</td><td>Add an equation for y, or use a different name.</td></tr>
+          <tr><td><code>x has no equation of motion, so it has no starting value</code></td><td>A starting value for something that doesn't move.</td><td>Check the spelling against the equation.</td></tr>
+          <tr><td><code>x'' is set by the equation itself; …</code></td><td>You gave <code>x''(0)</code>.</td><td>Remove it. Only <code>x(0)</code> and <code>x'(0)</code> can be set.</td></tr>
+          <tr><td><code>x is set by an equation of motion, so it can't also be defined here</code></td><td>A moving quantity also has a <code>x = …</code> line.</td><td>Rename one of them.</td></tr>
+          <tr><td><code>E depends on itself</code></td><td>A loop: E uses U, which uses E.</td><td>Break the loop.</td></tr>
+          <tr><td><code>x'(0) can't depend on V, which changes as it moves</code></td><td>A starting value uses a moving quantity.</td><td>Use inputs only.</td></tr>
+          <tr><td><code>“box” isn't a shape. Try: …</code></td><td>Unknown shape word.</td><td>Use one from the list in section 12.</td></tr>
+          <tr><td><code>spring needs “to (x, y)”</code></td><td>A shape is missing a point.</td><td>Add it; each shape card lists what's required.</td></tr>
+          <tr><td><code>Q isn't a quantity of this model — graph one of: …</code></td><td>A <code>graph</code> line names something unknown.</td><td>Use a name from the list it gives.</td></tr>
+          <tr><td><code>write  name = value, …</code></td><td>The line has no <code>=</code>, or more than one.</td><td>One statement per line.</td></tr>
+          <tr><td><code>an equation of motion needs a rate …</code></td><td>An equation with no <code>'</code> in it.</td><td>To define a quantity, put a single name on the left.</td></tr>
+          <tr><td><code>⚠ left side in N, right side in m — they should agree</code></td><td>The units don't match. It still runs.</td><td>Look for a missing factor (a mass, a stiffness, a g).</td></tr>
+          <tr><td><code>the equations can't be solved for x''</code></td><td>Usually a zero mass.</td><td>Check the inputs, especially anything you divide by.</td></tr>
+          <tr><td><code>the equations gave no answer at t = 1.20 s</code></td><td>A shape's position became impossible: a square root of a negative, or a division by zero.</td><td>Check the drawing's expressions at that moment.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- 16 -->
+    <section id="limits">
+      <h2><span class="n">16</span>What it can't do yet</h2>
+      <p class="sub">Known gaps, so you don't lose time on them.</p>
+      <ul>
+        <li><strong>No equation, no run.</strong> A model must have at least one equation of motion. Motion written purely as a function of time (<code>X = 2*cos(t)</code>, with no equation) isn't supported yet. As a workaround, add a dummy equation such as <code>z'' = 0</code>.</li>
+        <li><strong>No collisions or contact.</strong> Bounces, stacking and rolling contact need a physics engine, which is planned. You can fake a floor with a stiff spring force: <code>F = k*(-y)*(y &lt; 0)</code>.</li>
+        <li><strong>A fixed set of shapes.</strong> Pictures (<code>draw image "car.svg"</code>), pulleys and carts are planned.</li>
+        <li><strong>Shapes can't be dragged</strong> in the view. Change positions in the text.</li>
+        <li><strong>Fixed time step</strong> (2 ms by default; change it with <strong>Step</strong> in the controls bar). Very stiff systems may need a smaller step.</li>
+        <li><strong>The view only grows during a run.</strong> A shape that flies far away leaves the drawing zoomed out until you press Reset. Use a <code>view</code> line to keep it fixed.</li>
+      </ul>
+    </section>
+
+    <!-- 17 -->
+    <section id="cheat">
+      <h2><span class="n">17</span>Cheat sheet</h2>
+      <p class="sub">Everything on one screen.</p>
+      <div class="cheat">
+        <div class="code"><div class="cap"><span>physics</span></div><pre><code class="hl"># Title
+m*x'' + c*x' + k*x = F0*cos(w*t)   # equation
+k = 40 N/m                       # input (slider)
+x(0) = 0.2 m                     # start
+x'(0) = v0*cos(a)                # start, from inputs
+E = 1/2*k*x^2                    # quantity (graph)
+T = 2*pi*sqrt(m/k)               # result (fixed)
+stop when x &gt; 1 and t &gt; 0        # end the run
+graph v against x                # graph to offer
+view -1 -1 1 1                   # fix the view</code></pre></div>
+        <div class="code"><div class="cap"><span>drawing</span></div><pre><code class="hl">draw ground from (a, b) to (c, d)
+draw wall from (a, b) to (c, d)
+draw spring from (a, b) to (c, d) turns 9
+draw damper from (a, b) to (c, d)
+draw rod / string / line from (a, b) to (c, d)
+draw block at (x, y) size 0.2 angle th label "m"
+draw circle at (x, y) r 0.1 label "q"
+draw point at (x, y) label "P"
+draw pivot at (x, y)
+draw arrow from (x, y) by (dx, dy) label "F"
+draw arrow from (x, y) to (x2, y2)
+draw trace of (x, y)
+draw label "text" at (x, y)
+… colour good | bad | warm | violet | dim | #hex</code></pre></div>
+      </div>
+    </section>
+
+    <footer>ntbk simulation guide · written for the equation simulator as built in November 2026. Keys: <span class="kbd">⌘</span> <span class="kbd">↩</span> applies the text, <span class="kbd">Esc</span> closes the Edit panel, <span class="kbd">Space</span> plays and pauses a selected simulation.</footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  // ── A small highlighter for ntbk model text ──
+  const SHAPES = "ground|wall|spring|damper|rod|string|line|block|circle|point|pivot|arrow|trace|label";
+  const OPTS = "at|from|to|by|of|size|r|radius|label|colour|color|turns|angle|against|vs|when";
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function line(raw) {
+    // Split off a comment: a line starting with #, or " # " later on
+    let body = raw, comment = "";
+    const lead = /^\s*#/.test(raw);
+    if (lead) { body = ""; comment = raw; }
+    else {
+      const m = /\s#\s/.exec(raw);
+      if (m) { body = raw.slice(0, m.index); comment = raw.slice(m.index); }
+    }
+    let out = "";
+    const kw = /^(\s*)(draw|graph|stop|view)\b/.exec(body);
+    let rest = body;
+    if (kw) {
+      out += esc(kw[1]) + `<span class="t-key">${kw[2]}</span>`;
+      rest = body.slice(kw[0].length);
+      if (kw[2] === "draw") {
+        const sh = new RegExp(`^(\\s+)(${SHAPES})\\b`).exec(rest);
+        if (sh) { out += esc(sh[1]) + `<span class="t-shape">${sh[2]}</span>`; rest = rest.slice(sh[0].length); }
+      }
+    }
+    const token = new RegExp(`("[^"]*")|(\\b[A-Za-z_][A-Za-z0-9_]*'+)|(\\b(?:${OPTS})\\b)|(#[0-9a-fA-F]{3,8}\\b)|(\\b\\d+\\.?\\d*(?:e[+-]?\\d+)?\\b)`, "g");
+    let last = 0, m;
+    const isDraw = kw && /draw|graph|stop/.test(kw[2]);
+    while ((m = token.exec(rest))) {
+      out += esc(rest.slice(last, m.index));
+      if (m[1]) out += `<span class="t-str">${esc(m[1])}</span>`;
+      else if (m[2]) out += `<span class="t-rate">${esc(m[2])}</span>`;
+      else if (m[3]) out += isDraw ? `<span class="t-opt">${m[3]}</span>` : esc(m[3]);
+      else if (m[4]) out += `<span class="t-str">${m[4]}</span>`;
+      else if (m[5]) out += `<span class="t-num">${m[5]}</span>`;
+      last = token.lastIndex;
+    }
+    out += esc(rest.slice(last));
+    if (comment) out += `<span class="t-com">${esc(comment)}</span>`;
+    return out;
+  }
+  function highlight(el) { el.innerHTML = el.textContent.split("\n").map(line).join("\n"); }
+
+  // ── Copy buttons ──
+  function wireCopy(root) {
+    root.querySelectorAll(".copy").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const code = btn.closest(".code").querySelector("code");
+        const text = code.textContent;
+        const done = () => { btn.textContent = "Copied"; setTimeout(() => { btn.textContent = "Copy"; }, 1400); };
+        const fallback = () => {
+          const range = document.createRange(); range.selectNodeContents(code);
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          btn.textContent = "Selected — ⌘C";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1800);
+        };
+        try { navigator.clipboard.writeText(text).then(done, fallback); } catch { fallback(); }
+      });
+    });
+  }
+
+  // ── Shape cards ──
+  const C = { ink: "var(--fg)", dim: "var(--dim)", accent: "var(--accent)", good: "var(--good)", violet: "var(--violet)" };
+  const pics = {
+    ground: `<line x1="20" y1="22" x2="200" y2="22" stroke="${C.ink}" stroke-width="1.6"/>` + Array.from({ length: 20 }, (_, i) => `<line x1="${24 + i * 9}" y1="22" x2="${19 + i * 9}" y2="30" stroke="${C.ink}" stroke-width="1"/>`).join(""),
+    wall: `<line x1="110" y1="4" x2="110" y2="50" stroke="${C.ink}" stroke-width="1.6"/>` + Array.from({ length: 5 }, (_, i) => `<line x1="110" y1="${8 + i * 9}" x2="102" y2="${13 + i * 9}" stroke="${C.ink}" stroke-width="1"/>`).join(""),
+    spring: `<polyline points="20,27 34,27 ${Array.from({ length: 16 }, (_, i) => `${40 + i * 9},${i % 2 ? 33 : 21}`).join(" ")} 186,27 200,27" fill="none" stroke="${C.ink}" stroke-width="1.5" stroke-linejoin="round"/>`,
+    damper: `<g stroke="${C.ink}" fill="none" stroke-width="1.5"><line x1="20" y1="27" x2="90" y2="27"/><line x1="90" y1="19" x2="130" y2="19"/><line x1="90" y1="35" x2="130" y2="35"/><line x1="90" y1="19" x2="90" y2="35"/><line x1="112" y1="21" x2="112" y2="33" stroke-width="2.5"/><line x1="112" y1="27" x2="200" y2="27"/></g>`,
+    rod: `<line x1="30" y1="40" x2="190" y2="14" stroke="${C.ink}" stroke-width="4" stroke-linecap="round"/>`,
+    string: `<line x1="30" y1="40" x2="190" y2="14" stroke="${C.dim}" stroke-width="1.2"/>`,
+    line: `<line x1="30" y1="40" x2="190" y2="14" stroke="${C.ink}" stroke-width="1.5"/>`,
+    block: `<rect x="92" y="8" width="38" height="38" fill="${C.accent}" fill-opacity=".16" stroke="${C.accent}" stroke-width="1.6" transform="rotate(-18 111 27)"/><text x="111" y="32" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="${C.accent}">m</text>`,
+    circle: `<circle cx="111" cy="27" r="19" fill="${C.accent}" fill-opacity=".16" stroke="${C.accent}" stroke-width="1.6"/><text x="111" y="32" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="${C.accent}">q</text>`,
+    point: `<circle cx="104" cy="30" r="3.5" fill="${C.ink}"/><text x="114" y="22" font-family="var(--mono)" font-size="12" fill="${C.ink}">P</text>`,
+    pivot: `<g stroke="${C.ink}" fill="none" stroke-width="1.4"><polygon points="111,12 102,25 120,25"/><line x1="97" y1="25" x2="125" y2="25"/><circle cx="111" cy="12" r="3" fill="var(--paper)"/></g>`,
+    arrow: `<line x1="40" y1="27" x2="170" y2="27" stroke="${C.good}" stroke-width="2"/><polygon points="180,27 168,21 168,33" fill="${C.good}"/><text x="186" y="31" font-family="var(--mono)" font-size="12" fill="${C.good}">F</text>`,
+    trace: `<path d="M20 40 C 60 0, 100 0, 130 26 S 180 50, 200 14" fill="none" stroke="${C.violet}" stroke-width="1.2"/><circle cx="200" cy="14" r="4" fill="${C.violet}"/>`,
+    label: `<text x="111" y="32" text-anchor="middle" font-family="var(--body)" font-size="13" fill="${C.dim}">x = 0</text>`,
+  };
+  const shapes = [
+    ["ground", "draw ground from (a, b) to (c, d)", "A surface with hatching on the right-hand side of the direction drawn."],
+    ["wall", "draw wall from (a, b) to (c, d)", "The same as ground; use it for vertical supports."],
+    ["spring", "draw spring from (a, b) to (c, d) [turns 9]", "A zigzag that stretches between its ends. turns sets the coils (default 8)."],
+    ["damper", "draw damper from (a, b) to (c, d)", "A dashpot: a piston in a cylinder."],
+    ["rod", "draw rod from (a, b) to (c, d)", "A thick rigid bar. Pendulums, links."],
+    ["string", "draw string from (a, b) to (c, d)", "A thin grey line. Ropes, threads."],
+    ["line", "draw line from (a, b) to (c, d)", "A plain line. Edges, reference lines."],
+    ["block", "draw block at (x, y) [size s] [angle th] [label \"m\"]", "A square centred on the point. angle turns it anticlockwise, in radians."],
+    ["circle", "draw circle at (x, y) [r 0.1] [label \"q\"]", "A ball, wheel or particle. r is the radius (radius works too)."],
+    ["point", "draw point at (x, y) [label \"P\"]", "A dot, with its label beside it."],
+    ["pivot", "draw pivot at (x, y)", "A hinge on a small stand."],
+    ["arrow", "draw arrow from (x, y) by (dx, dy) [label \"F\"]\ndraw arrow from (x, y) to (x2, y2)", "Forces, velocities, fields. by is relative, to is a second point."],
+    ["trace", "draw trace of (x, y)", "Leaves a trail of where a point has been. Paths, orbits."],
+    ["label", "draw label \"text\" at (x, y)", "Text on the drawing."],
+  ];
+  const host = document.getElementById("shape-cards");
+  host.innerHTML = shapes.map(([name, form, about]) => `
+    <div class="shape">
+      <svg viewBox="0 0 220 54" aria-hidden="true">${pics[name]}</svg>
+      <div class="name">${name}</div>
+      <code>${esc(form)}</code>
+      <p>${esc(about)}</p>
+    </div>`).join("");
+
+  // ── Examples ──
+  const examples = [
+    { id: "pendulum", name: "Pendulum", about: "A damped pendulum. Angles are in degrees when typed and radians for the maths. Its graphs are the angle over time and the phase portrait.", text:
+`# Pendulum
+L*th'' = -g*sin(th) - b*L*th'
+L = 1 m
+g = 9.81 m/s^2
+b = 0.2 1/s
+th(0) = 40 deg
+th'(0) = 0 rad/s
+T0 = 2*pi*sqrt(L/g)          # small-swing period (a result)
+bx = L*sin(th)
+by = -L*cos(th)
+graph th
+graph th' against th
+draw pivot at (0, 0)
+draw rod from (0, 0) to (bx, by)
+draw circle at (bx, by) r 0.08
+draw trace of (bx, by)` },
+    { id: "projectile", name: "Projectile with drag", about: "Two equations solved together, starting values worked out from the launch speed and angle, and a stop when it lands. Set c = 0 to compare with the textbook range v₀² sin 2a / g.", text:
+`# Projectile with air resistance
+m*x'' = -c*x'*V
+m*y'' = -m*g - c*y'*V
+V = sqrt(x'^2 + y'^2)        # speed
+m = 0.5 kg
+g = 9.81 m/s^2
+c = 0.01 kg/m
+v0 = 20 m/s
+a = 45 deg
+x(0) = 0 m
+y(0) = 0 m
+x'(0) = v0*cos(a)
+y'(0) = v0*sin(a)
+stop when y < 0 and t > 0
+graph y against x
+graph V
+draw ground from (0, 0) to (45, 0)
+draw circle at (x, y) r 0.4
+draw trace of (x, y)
+draw arrow from (x, y) by (x'/4, y'/4)` },
+    { id: "coupled", name: "Two masses, three springs", about: "Coupled oscillators: each equation uses both positions. Start one mass displaced and watch the energy pass back and forth.", text:
+`# Two masses, three springs
+m*x1'' = -k*x1 + k*(x2 - x1)
+m*x2'' = -k*(x2 - x1) - k*x2
+m = 1 kg
+k = 20 N/m
+x1(0) = 0.2 m
+x2(0) = 0 m
+graph x1
+graph x2
+draw wall from (-1.5, 0.2) to (-1.5, -0.2)
+draw wall from (1.5, -0.2) to (1.5, 0.2)
+draw spring from (-1.5, 0) to (x1 - 0.6, 0)
+draw spring from (x1 - 0.4, 0) to (x2 + 0.4, 0)
+draw spring from (x2 + 0.6, 0) to (1.5, 0)
+draw block at (x1 - 0.5, 0) size 0.2 label "1"
+draw block at (x2 + 0.5, 0) size 0.2 label "2"` },
+    { id: "forces", name: "Several forces on a mass", about: "Forces given as size and direction, added up by components. One force grows with time. Each arrow is one force.", text:
+`# Forces on a mass
+m*x'' = Fx
+m*y'' = Fy
+m = 2 kg
+g = 9.81 m/s^2
+F1 = 20 N
+a1 = 30 deg
+F2 = 12 N
+a2 = 150 deg
+c = 2 N*s/m                  # drag
+F3 = 5 N/s * t               # a lift that grows with time
+Fx = F1*cos(a1) + F2*cos(a2) - c*x'
+Fy = F1*sin(a1) + F2*sin(a2) + F3 - m*g - c*y'
+x(0) = 0 m
+y(0) = 0 m
+graph y against x
+graph Fy
+draw block at (x, y) size 0.3 label "m"
+draw arrow from (x, y) by (F1*cos(a1)/20, F1*sin(a1)/20) label "F1"
+draw arrow from (x, y) by (F2*cos(a2)/20, F2*sin(a2)/20) label "F2"
+draw arrow from (x, y) by (0, -m*g/20) colour bad label "mg"
+draw trace of (x, y)` },
+    { id: "ball", name: "Bouncing ball", about: "A floor written as a very stiff spring that only pushes when the ball is below y = 0. This is the workaround until real collisions arrive.", text:
+`# Bouncing ball
+m*y'' = -m*g + K*(-y)*(y < 0) - b*y'*(y < 0)
+m = 0.2 kg
+g = 9.81 m/s^2
+K = 20000 N/m                # floor stiffness
+b = 4 N*s/m                  # energy lost in each bounce
+y(0) = 2 m
+E = 1/2*m*y'^2 + m*g*y
+graph y
+graph E
+draw ground from (-1, -0.1) to (1, -0.1)
+draw circle at (0, y + 0.1) r 0.1` },
+  ];
+  const tabs = document.getElementById("ex-tabs");
+  const panels = document.getElementById("ex-panels");
+  examples.forEach((ex, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.role = "tab"; b.id = `tab-${ex.id}`;
+    b.setAttribute("aria-controls", `panel-${ex.id}`);
+    b.setAttribute("aria-selected", i === 0 ? "true" : "false");
+    b.textContent = ex.name;
+    tabs.appendChild(b);
+    const p = document.createElement("div");
+    p.className = "panel"; p.id = `panel-${ex.id}`; p.setAttribute("role", "tabpanel");
+    p.setAttribute("aria-labelledby", b.id);
+    p.hidden = i !== 0;
+    p.innerHTML = `<p>${esc(ex.about)}</p><div class="code"><div class="cap"><span>${esc(ex.name.toLowerCase())}</span><button class="copy" type="button">Copy</button></div><pre><code class="hl"></code></pre></div>`;
+    p.querySelector("code").textContent = ex.text;
+    panels.appendChild(p);
+    b.addEventListener("click", () => {
+      tabs.querySelectorAll("button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+      panels.querySelectorAll(".panel").forEach((x) => { x.hidden = x !== p; });
+      try { localStorage.setItem("ntbk-guide-example", ex.id); } catch {}
+    });
+  });
+  try {
+    const saved = localStorage.getItem("ntbk-guide-example");
+    if (saved) document.getElementById(`tab-${saved}`)?.click();
+  } catch {}
+
+  document.querySelectorAll("code.hl").forEach(highlight);
+  wireCopy(document);
+})();
+</script>
+</body>
+</html>

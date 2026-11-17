@@ -133,6 +133,53 @@ export function graphStyle(groups = []) {
         "width": 1.4,
       },
     },
+    // ── Kinds of link ──
+    // Told apart by line style and colour together, so they still read
+    // apart for someone who cannot tell the colours apart.
+    { selector: 'edge[type = "derives"]', style: {
+        "target-arrow-shape": "triangle", "arrow-scale": 0.7,
+        "line-color": "#3F8F6B", "target-arrow-color": "#3F8F6B",
+        "line-opacity": 0.8, "width": 1.6 } },
+    { selector: 'edge[type = "example"]', style: {
+        "target-arrow-shape": "vee", "arrow-scale": 0.8,
+        "line-style": "dotted", "line-color": "#B0722A", "target-arrow-color": "#B0722A",
+        "line-opacity": 0.85, "width": 1.6 } },
+    { selector: 'edge[type = "cites"]', style: {
+        "target-arrow-shape": "circle", "arrow-scale": 0.6,
+        "line-style": "dashed", "line-dash-pattern": [2, 4],
+        "line-color": "#8C5BA8", "target-arrow-color": "#8C5BA8", "line-opacity": 0.8 } },
+    { selector: 'edge[type = "contrast"]', style: {
+        "line-style": "dashed", "line-dash-pattern": [7, 4],
+        "line-color": "#A8455B", "line-opacity": 0.75, "width": 1.4 } },
+    // What a link means shows when you are looking at it
+    { selector: "edge.lit, edge.hover", style: {
+        "label": "data(label)", "font-family": font, "font-size": 9, "color": ink2,
+        "text-rotation": "autorotate", "text-background-color": surface,
+        "text-background-opacity": 0.85, "text-background-padding": 2 } },
+    // Links the page suggests: faint, and clearly not yet the student's own
+    { selector: 'edge[type = "suggested"]', style: {
+        "line-style": "dashed", "line-dash-pattern": [3, 5], "line-color": accent,
+        "line-opacity": 0.6, "width": 1.6, "label": "maybe", "font-size": 9,
+        "color": accent, "text-background-color": surface,
+        "text-background-opacity": 0.85, "text-background-padding": 2 } },
+
+    // ── Kinds of node ──
+    { selector: 'node[kind = "equation"]', style: { "shape": "round-rectangle" } },
+    { selector: 'node[kind = "reference"]', style: { "shape": "round-tag" } },
+    { selector: 'node[kind = "project"]', style: { "shape": "round-diamond" } },
+    // A concept that lives in another notebook: a hollow ring, and a ↗
+    { selector: 'node[kind = "external"]', style: {
+        "background-opacity": 0, "border-style": "dashed",
+        "label": (n) => `${n.data("label")} ↗` } },
+
+    // ── Topic boxes ──
+    { selector: 'node[topic = "yes"]', style: {
+        "shape": "round-rectangle", "background-color": ink2, "background-opacity": 0.05,
+        "border-width": 1, "border-color": line, "border-opacity": 1,
+        "label": "data(label)", "text-valign": "top", "text-halign": "center",
+        "text-margin-y": -4, "font-size": 10, "font-weight": 600, "color": ink2,
+        "text-background-opacity": 0, "padding": 18, "corner-radius": 10 } },
+
     // A concept carrying a note is worth spotting without opening it
     { selector: 'node[hasNote = "yes"]', style: {
         "border-style": "double", "border-width": 3.5 } },
@@ -147,6 +194,8 @@ export function graphStyle(groups = []) {
         "target-arrow-color": accent } },
     // everything else recedes — this single effect does most of the work
     { selector: ".dim", style: { "opacity": 0.16 } },
+    { selector: "node.match", style: {
+        "opacity": 1, "border-width": 3, "border-color": accent, "z-index": 25 } },
   );
 
   return style;
@@ -203,8 +252,8 @@ export const prerequisiteLayout = () => ({
    Interactions — hover halo, focus dimming, sane zoom after fit.
    ------------------------------------------------------------------ */
 export function wireInteractions(cy, { onFocus } = {}) {
-  cy.on("mouseover", "node", (e) => e.target.addClass("hover"));
-  cy.on("mouseout", "node", (e) => e.target.removeClass("hover"));
+  cy.on("mouseover", "node, edge", (e) => e.target.addClass("hover"));
+  cy.on("mouseout", "node, edge", (e) => e.target.removeClass("hover"));
 
   const clear = () => cy.elements().removeClass("dim lit");
 

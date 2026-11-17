@@ -17,7 +17,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 // Which object types are live HTML and so have to be rasterised.
 // Everything else is already SVG or a bitmap and goes in as vector.
-const HTML_TYPES = new Set(["latex", "text", "code"]);
+const HTML_TYPES = new Set(["latex", "text", "code", "vars", "sim"]);
 
 /** 2 is ~192dpi against A4 — sharp on paper without enormous files. */
 export const DEFAULT_SCALE = 2;

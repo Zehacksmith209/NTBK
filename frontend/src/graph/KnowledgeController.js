@@ -3,6 +3,7 @@ import { setGraph } from "../model/history.js";
 import {
   createNode, createAnchor, createEdge, rederiveAnchors,
   searchTextFor, anchorsOf, neighbourhood, toSceneRect, pageForRect, toPageRect,
+  LINK_TYPES, NODE_KINDS, suggestLinks, pairKey,
 } from "./knowledge.js";
 
 // ─────────────────────────────────────────────
@@ -50,6 +51,7 @@ export class KnowledgeController {
     const result = mutate(after);
     this.app.history.run(setGraph(before, after, label));
     this.index = null;          // rebuilt lazily on the next search
+    this._suggested = null;
     this._emit();
     return result;
   }
@@ -131,11 +133,89 @@ export class KnowledgeController {
     }, "Lay out graph");
   }
 
+  /** Every topic in use, including the levels above nested ones. */
+  topics() {
+    const all = new Set();
+    for (const node of this.graph.nodes) {
+      const parts = String(node.group ?? "").split("/").map((p) => p.trim()).filter(Boolean);
+      parts.forEach((_, i) => all.add(parts.slice(0, i + 1).join(" / ")));
+    }
+    return [...all].sort((a, b) => a.localeCompare(b));
+  }
+
+  setKind(id, kind) {
+    if (!NODE_KINDS[kind]) return;
+    this._commit((g) => {
+      const n = g.nodes.find((x) => x.id === id);
+      if (n) n.kind = kind;
+    }, "Set kind");
+  }
+
+  /** Where a reference lives: a web address, or a citation as plain text. */
+  setSource(id, source) {
+    this._commit((g) => {
+      const n = g.nodes.find((x) => x.id === id);
+      if (n) n.source = String(source ?? "").trim();
+    }, "Set source");
+  }
+
+  /**
+   * A stand-in for a concept that lives in another notebook.
+   *
+   * Links can only join nodes in the same graph, so the other notebook's
+   * concept gets a small local node that remembers where the real one is:
+   * the notebook's id (which survives renaming the file), its path when it
+   * was linked, and the concept's id there. One stand-in per real concept.
+   */
+  externalNode({ notebookId, nodeId, label, title, path }) {
+    const existing = this.graph.nodes.find((n) =>
+      n.external?.notebookId === notebookId && n.external?.nodeId === nodeId);
+    if (existing) return existing;
+    return this._commit((g) => {
+      const node = createNode(label);
+      node.external = { notebookId, nodeId, title: title ?? "", path: path ?? null };
+      g.nodes.push(node);
+      return node;
+    }, "Add concept from another notebook");
+  }
+
+  /** Keep a stand-in's address current when its notebook is found again. */
+  updateExternal(id, patch) {
+    const node = this.node(id);
+    if (!node?.external) return;
+    const same = Object.entries(patch).every(([k, v]) => node.external[k] === v);
+    if (same) return;
+    this._commit((g) => {
+      const n = g.nodes.find((x) => x.id === id);
+      if (n?.external) Object.assign(n.external, patch);
+    }, "Update link");
+  }
+
+  /** Links worth suggesting, recomputed whenever the notebook has changed. */
+  suggestions() {
+    if (!this._suggested) {
+      this._suggested = suggestLinks(this.graph, this.app.store, this.pages);
+    }
+    return this._suggested;
+  }
+
+  suggestionsFor(nodeId) {
+    return this.suggestions().filter((s) => s.a === nodeId || s.b === nodeId);
+  }
+
+  /** "Not related" — never suggest this pair again. */
+  dismissSuggestion(a, b) {
+    this._commit((g) => {
+      g.dismissed = [...new Set([...(g.dismissed ?? []), pairKey(a, b)])];
+    }, "Dismiss suggestion");
+  }
+
   linkNodes(from, to, type = "related") {
     if (from === to) return null;
+    const undirected = LINK_TYPES[type] && !LINK_TYPES[type].directed;
     const exists = this.graph.edges.some((e) =>
       e.type === type && ((e.from === from && e.to === to)
-        || (type === "related" && e.from === to && e.to === from)));
+        || (undirected && e.from === to && e.to === from)));
     if (exists) return null;
     return this._commit((g) => {
       const edge = createEdge(from, to, type);
@@ -203,7 +283,16 @@ export class KnowledgeController {
 
   // ── Keeping anchors on their content ──────
   _onStoreChange(change) {
+    // Anything on the page can change what is worth suggesting
+    this._suggested = null;
     if (change.type === "graph") { this.index = null; this._emit(); return; }
+    if (change.type === "reload") {
+      // A different notebook (opened, or another tab): its own search index,
+      // and nothing selected that belonged to the last one
+      this.index = null;
+      if (this.selectedNodeId && !this.node(this.selectedNodeId)) this.selectedNodeId = null;
+      this._emit();
+    }
     if (!this.graph.anchors.length) return;
 
     // A reload brings a different document; re-derive everything once.
@@ -229,7 +318,8 @@ export class KnowledgeController {
     index.addAll(this.graph.nodes.map((node) => ({
       id: node.id,
       label: node.label,
-      text: searchTextFor(this.graph, this.app.store, this.pages, node),
+      text: [searchTextFor(this.graph, this.app.store, this.pages, node),
+             node.group ?? "", node.source ?? "", node.external?.title ?? ""].join(" "),
     })));
     this.index = index;
     return index;

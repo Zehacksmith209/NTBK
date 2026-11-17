@@ -15,6 +15,7 @@ import { createIcons, icons } from "lucide";
 const TYPE_ICONS = {
   latex: "sigma", image: "image", pdfpage: "file-type-2",
   graph: "chart-line", code: "code", text: "type", video: "video",
+  vars: "variable", sim: "atom",
   line: "minus", arrow: "move-right", rect: "square",
   ellipse: "circle", triangle: "triangle",
 };

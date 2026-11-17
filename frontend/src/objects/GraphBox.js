@@ -115,6 +115,10 @@ registerObjectType("graph", {
       }, delay);
     }
 
+    // A plot of k*x^2 redraws when k is changed in a Variables box
+    const onVariables = () => drawSoon(current);
+    window.addEventListener("ntbk:variables", onVariables);
+
     function draw(next) {
       current = next;
       generation++;
@@ -227,6 +231,7 @@ registerObjectType("graph", {
         scheduleFreeze(700);
       },
       destroy() {
+        window.removeEventListener("ntbk:variables", onVariables);
         clearTimeout(freezeTimer);
         if (pending) clearTimeout(pending);
         generation++;

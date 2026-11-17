@@ -461,7 +461,9 @@ registerObjectType("code", {
         resizeWatcher.disconnect();
         editor?.destroy();
         term?.dispose();
-        bridge.termClose(object.id);
+        // Switching notebook tabs takes the cell off the screen but keeps the
+        // shell, and whatever is running in it, for when the tab comes back.
+        if (!context.keepSessions?.()) bridge.termClose(object.id);
         for (const url of artefactUrls) URL.revokeObjectURL(url);
       },
     };

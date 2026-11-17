@@ -307,10 +307,28 @@ export class Store {
   }
 
   replaceDocument(data) {
-    // Every load goes through migrate(), including documents this build
-    // wrote, so a file that predates a field still opens with it present
-    // rather than failing the first time something reads it.
-    this.data = ensureLayers(migrate(data));
+    this.data = this.prepare(data);
+    this.emit({ type: "reload", ids: [] });
+  }
+
+  /**
+   * What every document goes through on its way in. Every load goes through
+   * migrate(), including documents this build wrote, so a file that predates
+   * a field still opens with it present rather than failing the first time
+   * something reads it.
+   */
+  prepare(data) {
+    return ensureLayers(migrate(data));
+  }
+
+  /**
+   * Put back a document that was already open in another tab.
+   *
+   * The very same object, not a copy and not re-migrated: the undo history
+   * kept with it refers to its elements.
+   */
+  swapDocument(data) {
+    this.data = data;
     this.emit({ type: "reload", ids: [] });
   }
 

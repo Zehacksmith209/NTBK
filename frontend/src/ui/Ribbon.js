@@ -1,5 +1,7 @@
 import { computePosition, offset, flip, shift } from "@floating-ui/dom";
 import { createIcons, icons } from "lucide";
+import { scenariosByCategory } from "../sim/scenarios/index.js";
+import { EXAMPLES } from "../sim/model.js";
 import Pickr from "@simonwep/pickr";
 import { typeableReadout } from "./NumberField.js";
 import { bridge } from "../bridge.js";
@@ -453,7 +455,7 @@ function ribbonConfig(app) {
           name: "Document",
           items: [
             { label: "New", icon: "file-plus",
-              tooltip: "Start a fresh notebook in this window",
+              tooltip: "Start a fresh notebook in a new tab (\u2318T)",
               action: (a) => a.newDocument() },
             { label: "New window", icon: "copy-plus",
               tooltip: "A second notebook alongside this one, in its own window",
@@ -784,11 +786,15 @@ function ribbonConfig(app) {
                 hint.textContent = "All four run on JSXGraph.";
                 panel.appendChild(hint);
               } },
+            { label: "Variables", icon: "variable",
+              tooltip: "name = value lines the whole notebook can use \u2014 in simulations, formulas and plots",
+              action: (a) => a.insertVariables() },
             { id: "formulas", label: "Formulas", icon: "book-open",
               tooltip: "Your formula library \u2014 insert one as LaTeX, or put values into it",
               action: (a) => a.toggleFormulaLibrary() },
-            { label: "Simulate", icon: "atom", disabled: true,
-              tooltip: "Physics simulation — matter.js is installed, not wired up yet" },
+            { label: "Simulate", icon: "atom",
+              tooltip: "A simulation that runs in your notes \u2014 change its inputs while it plays",
+              action: (a, el) => openMenu(a, el, simulateMenu) },
           ],
         },
         {
@@ -1040,4 +1046,54 @@ function videoMenu(app, panel, close) {
     if (event.key === "Escape") close();
   });
   setTimeout(() => field.focus(), 0);
+}
+
+
+/** Insert > Simulate: every scenario, grouped by subject. */
+function simulateMenu(app, panel, close) {
+  panel.classList.add("ntbk-sim-insert");
+  const heading = (text) => {
+    const head = document.createElement("div");
+    head.className = "ntbk-popover-label";
+    head.textContent = text;
+    panel.appendChild(head);
+  };
+  const entry = (text, title, run) => {
+    const button = document.createElement("button");
+    button.className = "ntbk-popover-mode";
+    button.style.width = "100%";
+    button.style.marginBottom = "3px";
+    button.textContent = text;
+    button.title = title ?? "";
+    button.addEventListener("click", () => { close(); run(); });
+    panel.appendChild(button);
+  };
+  // Every ready-made simulation is written as equations you can open and change.
+  // Built-in scenarios written in code still open in old notebooks, but are not offered
+  const groups = new Map();
+  for (const example of EXAMPLES) {
+    const category = example.category ?? "Examples";
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(example);
+  }
+  for (const [category, list] of scenariosByCategory()) {
+    const shown = list.filter((s) => !s.hidden);
+    if (!shown.length) continue;
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(...shown.map((s) => ({ scenario: s })));
+  }
+  for (const [category, list] of groups) {
+    heading(category);
+    for (const item of list) {
+      if (item.scenario) entry(item.scenario.title, item.scenario.summary, () => app.insertSimulation(item.scenario.id));
+      else entry(item.title, item.summary, () => app.insertSimulation("model", item.text));
+    }
+  }
+  heading("Your own");
+  entry("Write the equations…", "Type the equations of motion, inputs with units, and the shapes to draw",
+        () => app.insertSimulation("model"));
+  const hint = document.createElement("div");
+  hint.className = "ntbk-popover-hint";
+  hint.textContent = "Every simulation is equations you can open: right-click → Edit.";
+  panel.appendChild(hint);
 }

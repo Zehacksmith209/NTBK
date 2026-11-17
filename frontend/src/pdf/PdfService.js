@@ -85,6 +85,18 @@ export class PdfService {
     return promise;
   }
 
+  /** Drop the cached pages of these PDFs, when the notebook holding them closes. */
+  forget(assetIds) {
+    for (const assetId of assetIds) {
+      if (!this.documents.has(assetId)) continue;
+      this.documents.delete(assetId);
+      bridge.pdfClose?.(assetId);
+      for (const key of [...this.renders.keys()]) {
+        if (key.startsWith(`${assetId}:`)) this.renders.delete(key);
+      }
+    }
+  }
+
   clear() {
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls = [];

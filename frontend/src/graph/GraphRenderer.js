@@ -1,6 +1,7 @@
 import JXG from "jsxgraph";
 import "../styles/jsxgraph.css";
 import { compile } from "mathjs";
+import { numericScope } from "../sim/variables.js";
 
 // ─────────────────────────────────────────────
 //  GRAPH RENDERER
@@ -137,7 +138,7 @@ export function compileSurface(expr) {
   try {
     const code = compile(expr);
     const f = (x, y) => {
-      const value = code.evaluate({ x, y });
+      const value = code.evaluate({ ...numericScope(), x, y });
       return typeof value === "number" && Number.isFinite(value) ? value : 0;
     };
     f(0, 0);
@@ -176,8 +177,8 @@ export function compileImplicit(expr) {
     const left = compile(parts[0]);
     const right = compile(parts[1]);
     const f = (x, y) => {
-      const a = left.evaluate({ x, y });
-      const b = right.evaluate({ x, y });
+      const a = left.evaluate({ ...numericScope(), x, y });
+      const b = right.evaluate({ ...numericScope(), x, y });
       if (typeof a !== "number" || typeof b !== "number") return NaN;
       return a - b;
     };
@@ -205,7 +206,7 @@ export function compileExpression(expr) {
   try {
     const code = compile(expr);
     const f = (x) => {
-      const value = code.evaluate({ x });
+      const value = code.evaluate({ ...numericScope(), x });
       return typeof value === "number" && Number.isFinite(value) ? value : NaN;
     };
     f(0);   // fail fast on nonsense like "x +"

@@ -23,6 +23,7 @@ import { formatValue, formatPoint } from "../graph/exact.js";
 const TYPE_NAMES = {
   latex: "Formula (LaTeX)", image: "Image", pdfpage: "PDF page",
   graph: "Plot", code: "Code cell", text: "Text", video: "Video",
+  vars: "Variables", sim: "Simulation",
   rect: "Rectangle", ellipse: "Ellipse", line: "Line",
   arrow: "Arrow", triangle: "Triangle",
 };
@@ -431,6 +432,7 @@ function editorTab(el, app, element, redraw) {
     case "code": return codeEditor(el, app, element);
     case "graph": return plotEditor(el, app, element, redraw);
     case "video": return videoEditor(el, app, element);
+    case "sim": return simEditor(el, app, element);
     case "image":
     case "pdfpage": return boxEditor(el, app, element);
     default: return note(el, "Nothing to edit for this type yet.");
@@ -866,6 +868,14 @@ function plotEditor(el, app, element, redraw) {
   button.className = "ntbk-insp-button";
   button.textContent = "Open the full plot editor";
   button.addEventListener("click", () => app.editElement(id));
+  el.appendChild(button);
+}
+
+function simEditor(el, app, element) {
+  const button = document.createElement("button");
+  button.className = "ntbk-insp-button";
+  button.textContent = "Open inputs, graphs and results";
+  button.addEventListener("click", () => { closeInspector(); app.editElement(element.id); });
   el.appendChild(button);
 }
 

@@ -131,14 +131,24 @@ function valueTex(text) {
  * `values` maps each input name to what was typed for it, which may itself
  * be an expression ("2*pi") or carry a unit ("3 m/s^2").
  */
-export function calculate(definition, values) {
+/**
+ * `read(text)` evaluates what was typed (the panel passes one that knows the
+ * notebook's variables and units); `fallback(name)` is the notebook variable
+ * of that name, used when its box is left empty.
+ */
+export function calculate(definition, values, { read = evaluate, fallback = () => undefined } = {}) {
   const scope = {};
   const missing = [];
   for (const name of definition.inputs) {
     const typed = String(values?.[name] ?? "").trim();
-    if (!typed) { missing.push(name); continue; }
+    if (!typed) {
+      const known = fallback(name);
+      if (known !== undefined) { scope[name] = known; continue; }
+      missing.push(name);
+      continue;
+    }
     try {
-      const value = evaluate(typed);
+      const value = read(typed);
       if (value === undefined || typeof value === "function") throw new Error("not a value");
       scope[name] = value;
     } catch {

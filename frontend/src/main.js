@@ -17,6 +17,8 @@ import { buildRibbon, restoreTheme } from "./ui/Ribbon.js";
 import { KnowledgeController } from "./graph/KnowledgeController.js";
 import { openContextMenu, closeContextMenu } from "./ui/ContextMenu.js";
 import { openInspector, closeInspector } from "./ui/Inspector.js";
+import { GraphsPanel } from "./ui/GraphsPanel.js";
+import { SimBar } from "./ui/SimBar.js";
 import { VIEW_PRESETS } from "./graph/GraphRenderer.js";
 import { ObjectPanel } from "./ui/ObjectPanel.js";
 import { GraphPanel } from "./ui/GraphPanel.js";
@@ -30,12 +32,16 @@ import { PdfService } from "./pdf/PdfService.js";
 import { createGraphObject, GraphEditor } from "./objects/GraphBox.js";
 import { createCodeObject } from "./objects/CodeCell.js";
 import { createVideoObject, parseVideoUrl } from "./objects/VideoBox.js";
+import { createVarsObject } from "./objects/VarsBox.js";
+import { createSimObject } from "./objects/SimBox.js";
+import { refreshVariables } from "./sim/variables.js";
 import { createTextObject, DEFAULT_TEXT_SIZE } from "./objects/TextBox.js";
 import { Ruler } from "./tools/Ruler.js";
 import { Protractor } from "./tools/Protractor.js";
 import { Compass } from "./tools/Compass.js";
 import { Instruments } from "./tools/Instruments.js";
 import { FormulaPanel } from "./ui/FormulaPanel.js";
+import { NotebookTabs } from "./ui/NotebookTabs.js";
 import { renderPageToPng } from "./export/renderPage.js";
 import { TextTool } from "./tools/TextTool.js";
 import { openPdfDialog } from "./ui/PdfDialog.js";
@@ -84,8 +90,14 @@ class App {
       languageName: (filename) => this.languageName(filename),
       languages: () => this.languages,
       reloadLanguages: () => this.loadLanguages(),
-      updateObjectPayload: (id, payload) => this.updateObjectPayload(id, payload),
+      updateObjectPayload: (id, payload, label) => this.updateObjectPayload(id, payload, label),
+      graphsPanel: () => this.graphsPanel,
+      flash: (message) => this._flash(message),
+      // True while notebook tabs are being switched, when objects leave the
+      // screen without leaving the notebook
+      keepSessions: () => this.swapping,
     });
+    this.swapping = false;
 
     // The knowledge graph. Constructed after the store so it can subscribe,
     // and before the UI so panels can read it on first render.
@@ -109,6 +121,9 @@ class App {
     this.tool = null;
 
     root.querySelector("#ribbon").appendChild(buildRibbon(this));
+    // The selected simulation's controls, in a strip under the ribbon
+    this.graphsPanel = new GraphsPanel(this);
+    this.simBar = new SimBar(this, root.querySelector("#simbar"));
     // After the ribbon exists, so the button can pick up the right icon
     restoreTheme();
     // A correction the student set up last time has to be in place before
@@ -132,6 +147,10 @@ class App {
     this._bindMedia();
 
     this.history.subscribe(() => this._updateStatus());
+    // Notebook variables follow every change: a Variables box edited, moved
+    // up the page past another, deleted, or a whole other notebook switched in
+    this.store.subscribe(() => refreshVariables(this.store));
+    refreshVariables(this.store);
     this.store.subscribe(() => this._updateStatus());
     this.host.addEventListener("scene:transform", () => {
       this._updateStatus();
@@ -154,6 +173,8 @@ class App {
     this.languages = {};
     this.loadLanguages();
 
+    this.tabs = new NotebookTabs(this, root.querySelector("#tabs"));
+
     this.setTool("pen");
     this._wirePageInput();
     this._updateStatus();
@@ -165,14 +186,9 @@ class App {
     await bridge.whenReady();
     const opened = await bridge.pendingOpen();
     if (!opened) return;
-    const { data, assets } = opened;
+    const { data, assets, path } = opened;
     if (data.format !== "ntbk") return;
-    this.pdf.clear();
-    this.assets.load(data.assets ?? [], assets);
-    this.store.replaceDocument(data);
-    this.history.clear();
-    this.setSelection([]);
-    this._syncTitle();
+    this.tabs.open(data, assets, path);
   }
 
   // ── Tools ─────────────────────────────────
@@ -227,6 +243,7 @@ class App {
     this.scene.objects.setHighlighted(this.selection);
     this.selectionController.refresh();
     this.panel?.markSelection();
+    this.simBar?.refresh();
     this._updateStatus();
   }
 
@@ -284,7 +301,8 @@ class App {
 
     const label = {
       latex: "Formula", image: "Image", pdfpage: "PDF page",
-      graph: "Plot", code: "Code", text: "Text", video: "Video",
+      graph: "Plot", code: "Code", text: "Text", video: "Video", vars: "Variables",
+      sim: "Simulation",
     }[element.type] ?? "Object";
 
     if (element.type === "code" && element.payload?.filename) {
@@ -581,6 +599,48 @@ class App {
     await this._fullGraph.open();
   }
 
+  openUrl(url) {
+    return bridge.openUrl(url);
+  }
+
+  /**
+   * Follow a link to a concept that lives in another notebook.
+   *
+   * Found by the notebook's id among the open tabs first, because that
+   * survives the file being renamed or moved; then by the path it had when
+   * it was linked.
+   */
+  async openExternalConcept(stub) {
+    const { notebookId, nodeId, path, title } = stub.external ?? {};
+    const tabs = this.tabs;
+    let target = tabs.tabs.find((tab) => tab.data.meta?.id === notebookId);
+    if (target) {
+      // Remember where it is now, while the notebook holding the link is
+      // still the one on screen to write that into
+      if (target.path) this.knowledge.updateExternal(stub.id, { path: target.path, title: tabs.title(target) });
+      tabs.switchTo(target);
+    } else {
+      const opened = path ? await bridge.openPath(path) : null;
+      if (!opened || opened.data.format !== "ntbk") {
+        this._flash(path
+          ? `Could not find \u201c${title || "that notebook"}\u201d \u2014 it was at ${path}`
+          : `\u201c${title || "That notebook"}\u201d was never saved, so it cannot be found`);
+        return false;
+      }
+      if (opened.data.meta?.id !== notebookId) {
+        this._flash("The file there is a different notebook now");
+      }
+      tabs.open(opened.data, opened.assets, opened.path);
+    }
+    if (this.knowledge.node(nodeId)) {
+      this.openGraphPanel();
+      this.knowledge.select(nodeId);
+    } else {
+      this._flash("That concept is no longer in its notebook");
+    }
+    return true;
+  }
+
   refreshGraphOverlay() {
     this.graphOverlay?.refresh();
   }
@@ -860,6 +920,32 @@ class App {
       object.y = inTheWay.y + inTheWay.h + 12;
     }
     this.history.run(addElements([this.adopt(object)], "Insert LaTeX"));
+    this.setTool("select");
+    this.setSelection([object.id]);
+  }
+
+  /** A simulation, from the scenario library, in the middle of the view. */
+  insertSimulation(scenarioId, modelText) {
+    const rect = this.host.getBoundingClientRect();
+    const centre = this.scene.toScene(
+      rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const object = createSimObject(0, 0, scenarioId, modelText);
+    object.x = Math.round(centre.x - object.w / 2);
+    object.y = Math.round(centre.y - object.h / 2);
+    this.history.run(addElements([this.adopt(object)], "Insert simulation"));
+    this.setTool("select");
+    this.setSelection([object.id]);
+  }
+
+  /** A Variables box: name = value lines the whole notebook can use. */
+  insertVariables() {
+    const rect = this.host.getBoundingClientRect();
+    const centre = this.scene.toScene(
+      rect.left + rect.width / 2, rect.top + rect.height / 3);
+    const object = createVarsObject(0, 0);
+    object.x = Math.round(centre.x - object.w / 2);
+    object.y = Math.round(centre.y - object.h / 2);
+    this.history.run(addElements([this.adopt(object)], "Insert variables"));
     this.setTool("select");
     this.setSelection([object.id]);
   }
@@ -1348,16 +1434,15 @@ class App {
   }
 
   // ── Files ─────────────────────────────────
+  /** A fresh notebook, in a tab of its own. */
   newDocument() {
-    this.assets.clear();
-    this.pdf.clear();
-    this.store.replaceDocument(createEmptyDocument());
-    this.history.clear();
-    this.setSelection([]);
-    this._syncTitle();
+    this.tabs.newTab();
   }
 
   async saveDocument() {
+    // The file a save goes to belongs to the tab on screen; make sure Python
+    // has caught up with a switch that has only just happened
+    await this.tabs.pathSynced;
     const name = `${this.store.data.meta.title || "untitled"}.ntbk`;
     const document = this.store.toJSON();
     document.assets = this.assets.manifest();
@@ -1375,6 +1460,7 @@ class App {
       // The file may have been saved under a new name
       const stem = String(saved).split("/").pop().replace(/\.ntbk$/i, "");
       if (stem) this.store.data.meta.title = stem;
+      this.tabs.markSaved(await bridge.currentPath());
       this._syncTitle();
       this._flash(`Saved ${saved}`);
     }
@@ -1383,20 +1469,14 @@ class App {
   async openDocument() {
     const opened = await bridge.openDocument();
     if (!opened) return;
-    const { data, assets } = opened;
+    const { data, assets, path } = opened;
     if (data.format !== "ntbk") return this._flash("Not an .ntbk file");
     if (data.schemaVersion > SCHEMA_VERSION) {
       return this._flash(`File is schema v${data.schemaVersion}, this build reads v${SCHEMA_VERSION}`);
     }
-    // Assets must land before the document, or the first render of an image
-    // object looks up an id that isn't there yet
-    this.pdf.clear();
-    this.assets.load(data.assets ?? [], assets);
-    this.store.replaceDocument(data);
-    this.history.clear();
-    this.setSelection([]);
-    this._syncTitle();
-    this._flash("Opened");
+    // Opens in a tab of its own, or switches to it if it is already open
+    const { already } = this.tabs.open(data, assets, path);
+    this._flash(already ? "Already open \u2014 switched to it" : "Opened");
   }
 
   // ── Input ─────────────────────────────────
@@ -1494,6 +1574,9 @@ class App {
 
   _bindKeyboard() {
     window.addEventListener("keydown", (event) => {
+      // Tabs answer even while typing, the way a browser's do
+      if (this._tabShortcut(event)) return;
+
       const typing = /^(INPUT|TEXTAREA)$/.test(event.target?.tagName)
         || event.target?.isContentEditable;
       if (typing) return;
@@ -1537,6 +1620,30 @@ class App {
    * Tell objects the zoom moved. PDF pages use it to re-rasterise sharper
    * when you go in close. Debounced, so a pinch doesn't queue a render a frame.
    */
+  /**
+   * ⌘T new tab, ⌘W close it, Ctrl+Tab or ⌘⇧] / ⌘⇧[ to move along, ⌘1–9 to
+   * jump. Returns true when the key was one of these.
+   */
+  _tabShortcut(event) {
+    const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    let run = null;
+    if (event.ctrlKey && key === "tab") run = () => this.tabs.step(event.shiftKey ? -1 : 1);
+    else if (mod && event.shiftKey && (key === "]" || key === "}")) run = () => this.tabs.step(1);
+    else if (mod && event.shiftKey && (key === "[" || key === "{")) run = () => this.tabs.step(-1);
+    else if (mod && !event.shiftKey && !event.altKey && key === "t") run = () => this.tabs.newTab();
+    else if (mod && !event.shiftKey && !event.altKey && key === "w") run = () => this.tabs.close();
+    else if (mod && !event.shiftKey && /^[1-9]$/.test(key)) {
+      // ⌘9 is always the last tab, as in a browser
+      const n = Number(key);
+      run = () => this.tabs.switchTo(n === 9 ? this.tabs.tabs.at(-1) : this.tabs.tabs[n - 1]);
+    }
+    if (!run) return false;
+    event.preventDefault();
+    run();
+    return true;
+  }
+
   _restyleForZoom() {
     clearTimeout(this._zoomTimer);
     this._zoomTimer = setTimeout(() => {
